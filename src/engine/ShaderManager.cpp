@@ -318,6 +318,21 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
         particlePass->images = images;
     }
 
+    // Volumetric Pass
+    auto volumetricPass = std::make_shared<PassInfo>();
+    volumetricPass->name = "VolumetricPass";
+    volumetricPass->usesSwapchain = false;
+    {
+        std::vector<PassImage> images;
+        images.push_back({
+            .name = "VolumetricColor",
+            .clearValue = { .color = { {0.0f, 0.0f, 0.0f, 0.0f} } },
+            .format = VK_FORMAT_R16G16B16A16_SFLOAT,
+            .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+        });
+        volumetricPass->images = images;
+    }
+
     // AO Pass
     auto aoPass = std::make_shared<PassInfo>();
     aoPass->name = "AOPass";
@@ -671,16 +686,17 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
             .fragment = { shaderPath("lighting.frag"), VK_SHADER_STAGE_FRAGMENT_BIT },
             .config = {
                 .vertexBitBindings = 2,
-                .fragmentBitBindings = 7,
+                .fragmentBitBindings = 8,
                 .vertexDescriptorCounts = { 1, 1 },
                 .vertexDescriptorTypes = {
                     VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                     VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
                 },
                 .fragmentDescriptorCounts = {
-                    1, 1, 1, 1, 1, 64, 1
+                    1, 1, 1, 1, 1, 1, 64, 1
                 },
                 .fragmentDescriptorTypes = {
+                    VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                     VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                     VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                     VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -699,7 +715,8 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                     { 3, "gbuffer", "Normal" },
                     { 4, "gbuffer", "Material" },
                     { 5, "gbuffer", "Depth" },
-                    { 6, "particle", "ParticleColor" }
+                    { 6, "particle", "ParticleColor" },
+                    { 7, "volumetric", "VolumetricColor" }
                 }
             }
         };
@@ -805,6 +822,47 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
             }
         };
         shader.config.setPushConstant<ParticlePC>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        shaders.push_back(shader);
+    }
+
+    // Volumetric
+    {
+        GraphicsShader shader = {
+            .name = "volumetric",
+            .vertex = { shaderPath("volumetric.vert"), VK_SHADER_STAGE_VERTEX_BIT },
+            .fragment = { shaderPath("volumetric.frag"), VK_SHADER_STAGE_FRAGMENT_BIT },
+            .config = {
+                .poolMultiplier = 1,
+                .vertexBitBindings = 1,
+                .fragmentBitBindings = 2,
+                .vertexDescriptorCounts = {
+                    1
+                },
+                .vertexDescriptorTypes = {
+                    VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+                },
+                .fragmentDescriptorCounts = {
+                    1, 1
+                },
+                .fragmentDescriptorTypes = {
+                    VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                    VK_DESCRIPTOR_TYPE_SAMPLER
+                },
+                .cullMode = VK_CULL_MODE_BACK_BIT,
+                .depthWrite = false,
+                .enableDepth = false,
+                .passInfo = volumetricPass,
+                .colorAttachmentCount = 1,
+                .getVertexInputDescriptions = [](std::vector<VkVertexInputBindingDescription>& bindings,
+                                                 std::vector<VkVertexInputAttributeDescription>& attributes) {
+                    bindings.resize(1);
+                    bindings[0] = { .binding = 0, .stride = sizeof(glm::vec3), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX };
+                    attributes.resize(1);
+                    attributes[0] = { .location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = 0 };
+                }
+            }
+        };
+        shader.config.setPushConstant<VolumetricPC>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
         shaders.push_back(shader);
     }
 
@@ -1154,7 +1212,7 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
     }
 
     renderGraph.nodes.clear();
-    renderGraph.nodes.reserve(6);
+    renderGraph.nodes.reserve(16);
 
     auto pushNode = [&](bool is2D, PassInfo* pass, std::initializer_list<const char*> shaderList) {
         RenderNode node;
@@ -1168,6 +1226,7 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
 
     pushNode(false, gbufferPass.get(), { "gbuffer" });
     pushNode(true, particlePass.get(), { "particle" });
+    pushNode(true, volumetricPass.get(), { "volumetric" });
     pushNode(true, lightingPass.get(), { "lighting" });
     pushNode(true, ssrPass.get(), { "ssr" });
     pushNode(true, aoPass.get(), { "ao" });

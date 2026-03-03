@@ -83,6 +83,12 @@ namespace engine {
         float pad;
     };
 
+    struct VolumetricPC {
+        glm::mat4 viewProj;
+        glm::vec3 camPos;
+        float pad;
+    };
+
     struct CompositePC {
         glm::vec2 inverseScreenSize;
         uint32_t flags; // bit 0-1 = AA mode (0=none, 1=FXAA, 2=SMAA)

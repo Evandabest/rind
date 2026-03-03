@@ -3,6 +3,7 @@
 #include <engine/InputManager.h>
 #include <engine/EntityManager.h>
 #include <engine/ParticleManager.h>
+#include <engine/VolumetricManager.h>
 #include <engine/UIManager.h>
 #include <engine/TextureManager.h>
 #include <engine/ShaderManager.h>
@@ -169,6 +170,7 @@ void engine::Renderer::initVulkan() {
     ensureFallback2DTexture();
     ensureFallbackShadowCubeTexture();
     particleManager->init();
+    volumetricManager->init();
     modelManager->init();
     sceneManager->setActiveScene(0);
     uiManager->loadTextures();
@@ -318,6 +320,8 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
         audioManager->update();
         particleManager->updateAll(deltaTime);
         particleManager->updateParticleBuffer(currentFrame);
+        volumetricManager->updateAll(deltaTime);
+        volumetricManager->updateVolumetricBuffer(currentFrame);
     }
     if (entityManager->getCamera()) {
         Camera* cam = entityManager->getCamera();
@@ -583,6 +587,11 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
                 std::cout << "[record] rendering Particles" << std::endl;
             }
             particleManager->renderParticles(commandBuffer, currentFrame);
+        } else if (node.shaders.find(shaderManager->getGraphicsShader("volumetric")) != node.shaders.end()) {
+            if (DEBUG_RENDER_LOGS) {
+                std::cout << "[record] rendering Volumetrics" << std::endl;
+            }
+            volumetricManager->renderVolumetrics(commandBuffer, currentFrame);
         } else if (node.is2D 
         && (node.shaders.find(shaderManager->getGraphicsShader("ui")) != node.shaders.end()
         || node.shaders.find(shaderManager->getGraphicsShader("text")) != node.shaders.end())
@@ -2217,7 +2226,7 @@ void engine::Renderer::createPostProcessDescriptorSets() {
                 }
 
                 if (type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE || type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-                    const bool isLightingShadowBinding = (shader->name == "lighting" && frag == 5);
+                    const bool isLightingShadowBinding = (shader->name == "lighting" && frag == shader->config.fragmentBitBindings - 2);
                     
                     if (isLightingShadowBinding) {
                         Texture* fallbackTex = textureManager ? textureManager->getTexture("fallback_shadow_cube") : nullptr;

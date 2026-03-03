@@ -49,9 +49,12 @@ Texture2D<float> gBufferDepth;
 Texture2D<float4> particleTexture;
 
 [[vk::binding(7)]]
-TextureCube<float> shadowMaps[64];
+Texture2D<float4> volumetricTexture;
 
 [[vk::binding(8)]]
+TextureCube<float> shadowMaps[64];
+
+[[vk::binding(9)]]
 SamplerState sampleSampler;
 
 struct PushConstants {
@@ -285,8 +288,9 @@ float4 main(VSOutput input) : SV_Target {
     float depth = gBufferDepth.Sample(sampleSampler, input.fragTexCoord);
     if (depth >= 0.9999) {
         float4 particleColor = particleTexture.Sample(sampleSampler, input.fragTexCoord);
-        float3 result = albedoSample + particleColor.rgb * particleColor.a;
-        return float4(ACESFilm(result), particleColor.a);
+        float4 volumetricColor = volumetricTexture.Sample(sampleSampler, input.fragTexCoord);
+        float3 result = albedoSample + particleColor.rgb * particleColor.a + volumetricColor.rgb * volumetricColor.a;
+        return float4(ACESFilm(result), particleColor.a + volumetricColor.a);
     }
     float3 fragPos = reconstructPosition(input.fragTexCoord, depth);
     float3 toCamera = pc.camPos - fragPos;
@@ -380,7 +384,8 @@ float4 main(VSOutput input) : SV_Target {
         Lo = albedoSample * 0.1;
     }
     float4 particleColor = particleTexture.Sample(sampleSampler, input.fragTexCoord);
-    Lo += particleColor.rgb * particleColor.a;
+    float4 volumetricColor = volumetricTexture.Sample(sampleSampler, input.fragTexCoord);
+    Lo += particleColor.rgb * particleColor.a + volumetricColor.rgb * volumetricColor.a;
     float alphaOut = max(max(Lo.r, Lo.g), max(Lo.b, alpha));
     return float4(ACESFilm(Lo), alphaOut);
 }

@@ -1,5 +1,7 @@
 #include <engine/VolumetricManager.h>
 #include <engine/ShaderManager.h>
+#include <engine/PushConstants.h>
+#include <engine/Camera.h>
 
 engine::Volumetric::Volumetric(VolumetricManager* volumetricManager, const glm::mat4& transform, const glm::vec4& color, float lifetime)
     : volumetricManager(volumetricManager), transform(transform), color(color), lifetime(lifetime) {
@@ -38,6 +40,8 @@ engine::VolumetricManager::~VolumetricManager() {
 }
 
 void engine::VolumetricManager::init() {
+    VkDeviceSize cubeSize = sizeof(unitCube);
+    renderer->copyDataToBuffer(unitCube, cubeSize, cubeVertexBuffer, cubeVertexBufferMemory);
     VkDeviceSize bufferSize = maxVolumetrics * sizeof(VolumetricGPU);
     size_t frames = static_cast<size_t>(renderer->getMaxFramesInFlight());
     volumetricBuffers.resize(frames);
@@ -112,7 +116,7 @@ void engine::VolumetricManager::createVolumetricDescriptorSets() {
                 .dstSet = descriptorSets[i],
                 .dstBinding = 1,
                 .dstArrayElement = 0,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                 .descriptorCount = 1,
                 .pImageInfo = &depthImageInfo
             },
@@ -121,7 +125,7 @@ void engine::VolumetricManager::createVolumetricDescriptorSets() {
                 .dstSet = descriptorSets[i],
                 .dstBinding = 2,
                 .dstArrayElement = 0,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
                 .descriptorCount = 1,
                 .pImageInfo = &samplerInfo
             }
@@ -179,6 +183,24 @@ void engine::VolumetricManager::updateVolumetricBuffer(uint32_t currentFrame) {
     }
     if (gpuData.empty()) return;
     memcpy(volumetricBuffersMapped[currentFrame], gpuData.data(), gpuData.size() * sizeof(VolumetricGPU));
+}
+
+void engine::VolumetricManager::renderVolumetrics(VkCommandBuffer commandBuffer, uint32_t currentFrame) {
+    if (volumetrics.empty()) return;
+    GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("volumetric");
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
+    Camera* camera = renderer->getEntityManager()->getCamera();
+    if (!camera) return;
+    VkExtent2D extent = renderer->getSwapChainExtent();
+    VolumetricPC pushConstants = {
+        .viewProj = camera->getProjectionMatrix() * camera->getViewMatrix(),
+        .camPos = camera->getWorldPosition()
+    };
+    vkCmdPushConstants(commandBuffer, shader->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VolumetricPC), &pushConstants);
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, &cubeVertexBuffer, &offset);
+    vkCmdDraw(commandBuffer, 36, static_cast<uint32_t>(volumetrics.size()), 0, 0);
 }
 
 void engine::VolumetricManager::updateAll(float deltaTime) {
