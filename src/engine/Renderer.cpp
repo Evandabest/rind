@@ -1069,6 +1069,11 @@ void engine::Renderer::recreateSwapChain() {
         vkResetDescriptorPool(device, particleShader->descriptorPool, 0);
         particleManager->createParticleDescriptorSets();
     }
+    GraphicsShader* volumetricShader = shaderManager->getGraphicsShader("volumetric");
+    if (volumetricShader && volumetricShader->descriptorPool != VK_NULL_HANDLE) {
+        vkResetDescriptorPool(device, volumetricShader->descriptorPool, 0);
+        volumetricManager->createVolumetricDescriptorSets();
+    }
     inputManager->dispatchRecreateSwapChain();
 }
 

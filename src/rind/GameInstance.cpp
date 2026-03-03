@@ -474,6 +474,7 @@ rind::GameInstance::GameInstance() {
     uiManager = std::make_unique<engine::UIManager>(renderer.get(), "src/assets/fonts/");
     modelManager = std::make_unique<engine::ModelManager>(renderer.get(), "src/assets/models/");
     particleManager = std::make_unique<engine::ParticleManager>(renderer.get());
+    volumetricManager = std::make_unique<engine::VolumetricManager>(renderer.get());
     audioManager = std::make_unique<engine::AudioManager>(renderer.get(), "src/assets/audio/");
     settingsManager = std::make_unique<engine::SettingsManager>(renderer.get(),
         std::vector<engine::SettingsManager::SettingsDefinition>{
