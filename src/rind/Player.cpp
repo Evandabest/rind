@@ -1,6 +1,7 @@
 #include <rind/Player.h>
 #include <rind/Enemy.h>
 #include <engine/ParticleManager.h>
+#include <engine/VolumetricManager.h>
 #include <engine/UIManager.h>
 #include <engine/SceneManager.h>
 #include <engine/SettingsManager.h>
@@ -275,8 +276,43 @@ void rind::Player::update(float deltaTime) {
         glm::vec3 predictedGunModelPos = playerWorldPos + velocityOffset + (yawDelta * (gunModelWorldPos - playerWorldPos));
         glm::vec3 gunOffsetFromGunModel = gunAfterYaw - predictedGunModelPos;
         glm::vec3 currentGunEndPos = predictedGunModelPos + (pitchDelta * gunOffsetFromGunModel);
+        glm::vec3 rayDir = -glm::normalize(glm::vec3(camera->getWorldTransform()[2]));
+        if (trailFramesRemaining == maxTrailFrames) {
+            getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+                glm::scale(
+                    glm::translate(
+                        glm::mat4(1.0f), currentGunEndPos + rayDir * 0.1f
+                    ),
+                    glm::vec3(0.2f, 0.2f, 0.2f)
+                ),
+                glm::scale(
+                    glm::translate(
+                        glm::mat4(1.0f), currentGunEndPos + rayDir * 0.65f
+                    ),
+                    glm::vec3(1.3f, 1.3f, 1.3f)
+                ),
+                glm::vec4(1.0f, 0.2f, 0.2f, 12.0f),
+                0.15f
+            );
+            getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+                glm::scale(
+                    glm::translate(
+                        glm::mat4(1.0f), currentGunEndPos + rayDir * 0.25f
+                    ),
+                    glm::vec3(0.5f, 0.5f, 0.5f)
+                ),
+                glm::scale(
+                    glm::translate(
+                        glm::mat4(1.0f), currentGunEndPos + rayDir * 2.5f
+                    ),
+                    glm::vec3(5.0f, 5.0f, 5.0f)
+                ),
+                glm::vec4(0.1f, 0.1f, 0.1f, 0.6f),
+                4.0f
+            );
+        }
         particleManager->spawnTrail(
-            currentGunEndPos,
+            currentGunEndPos + rayDir * 0.1f,
             trailEndPos - currentGunEndPos,
             trailColor,
             deltaTime * 1.5f,

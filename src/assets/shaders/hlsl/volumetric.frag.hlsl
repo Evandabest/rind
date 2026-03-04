@@ -26,7 +26,7 @@ struct PushConstants {
 [[vk::push_constant]] PushConstants pc;
 
 static const int COARSE_STEPS = 8;
-static const int FINE_STEPS = 4;
+static const int FINE_STEPS = 8;
 static const float THRESHOLD = 0.01;
 
 float hash3(float3 p) {
@@ -55,13 +55,13 @@ float vnoise(float3 p) {
 }
 
 float fbm(float3 p) {
-    return vnoise(p) * 0.500 + vnoise(p * 2.0) * 0.250 + vnoise(p * 4.0) * 0.125 + vnoise(p * 8.0) * 0.063;
+    return vnoise(p) * 0.500 + vnoise(p * 2.0) * 0.250 + vnoise(p * 4.0) * 0.125 + vnoise(p * 8.0) * 0.063 + vnoise(p * 16.0) * 0.031;
 }
 
 float sampleDensity(float3 localPos, float age, float lifetime) {
     float t = age / max(lifetime, 0.0001);
     float radial = exp(-dot(localPos, localPos) * 12.0);
-    float3 noiseCoord = localPos * 3.5 + float3(0.0, age * 0.4, age * 0.15);
+    float3 noiseCoord = localPos * 6.0 + float3(0.0, age * 0.4, age * 0.15);
     float n = fbm(noiseCoord);
     float ageFade = pow(saturate(1.0 - t), 1.8);
     return radial * n * ageFade;

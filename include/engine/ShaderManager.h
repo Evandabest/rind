@@ -77,6 +77,7 @@ namespace engine {
             std::shared_ptr<PassInfo> passInfo = nullptr;
             VkSampler sampler = VK_NULL_HANDLE;
             bool blendEnable = true;
+            bool blendAdditive = false;
             VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT;
             int colorAttachmentCount = 1;
             std::type_index pushConstantType = std::type_index(typeid(void));

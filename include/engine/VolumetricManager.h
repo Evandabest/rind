@@ -1,6 +1,9 @@
 #pragma once
 
+#define GLM_ENABLE_EXPERIMENTAL
 #include <engine/Renderer.h>
+#include <glm/gtx/matrix_decompose.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 namespace engine {
     class VolumetricManager;
@@ -14,10 +17,8 @@ namespace engine {
     };
     class Volumetric {
     public:
-        Volumetric(VolumetricManager* volumetricManager, const glm::mat4& transform, const glm::vec4& color, float lifetime);
+        Volumetric(VolumetricManager* volumetricManager, const glm::mat4& initialTransform, const glm::mat4& finalTransform, const glm::vec4& color, float lifetime);
         ~Volumetric();
-        const glm::mat4& getTransform() const { return transform; }
-        void setTransform(const glm::mat4& transform) { this->transform = transform; }
         const glm::vec4& getColor() const { return color; }
         void setColor(const glm::vec4& color) { this->color = color; }
         float getLifetime() const { return lifetime; }
@@ -25,9 +26,23 @@ namespace engine {
         float getAge() const { return age; }
         void setAge(float age) { this->age = age; }
         VolumetricGPU getGPUData() const {
+            float t = age / std::max(lifetime, 0.0001f);
+            float eased = 1.0f - (1.0f - t) * (1.0f - t);
+
+            glm::vec3 scaleA, scaleB, transA, transB, skew;
+            glm::vec4 persp;
+            glm::quat rotA, rotB;
+            glm::decompose(initialTransform, scaleA, rotA, transA, skew, persp);
+            glm::decompose(finalTransform, scaleB, rotB, transB, skew, persp);
+            glm::vec3 scale = glm::mix(scaleA, scaleB, eased);
+            glm::quat rot = glm::slerp(rotA, rotB, eased);
+            glm::vec3 trans = glm::mix(transA, transB, eased);
+            glm::mat4 model = glm::translate(glm::mat4(1.0f), trans) 
+                * glm::toMat4(rot)
+                * glm::scale(glm::mat4(1.0f), scale);
             return {
-                .model = transform,
-                .invModel = glm::inverse(transform),
+                .model = model,
+                .invModel = glm::inverse(model),
                 .color = color,
                 .age = age,
                 .lifetime = lifetime
@@ -40,7 +55,8 @@ namespace engine {
         bool isMarkedForDeletion() const { return markedForDeletion; }
     private:
         VolumetricManager* volumetricManager;
-        glm::mat4 transform;
+        glm::mat4 initialTransform;
+        glm::mat4 finalTransform;
         glm::vec4 color;
         float lifetime;
         float age = 0.0f;
@@ -53,6 +69,10 @@ namespace engine {
         void init();
         void clear();
 
+        void createVolumetric(const glm::mat4& initialTransform, const glm::mat4& finalTransform, const glm::vec4& color, float lifetime) {
+            if (volumetrics.size() >= hardCap) return;
+            new Volumetric(this, initialTransform, finalTransform, color, lifetime);
+        }
         void registerVolumetric(Volumetric* volumetric) { volumetrics.push_back(volumetric); }
         void unregisterVolumetric(Volumetric* volumetric) {
             volumetrics.erase(std::remove(volumetrics.begin(), volumetrics.end(), volumetric), volumetrics.end());
