@@ -1,5 +1,6 @@
 #include <rind/Enemy.h>
 #include <engine/ParticleManager.h>
+#include <engine/VolumetricManager.h>
 #include <glm/gtc/quaternion.hpp>
 #include <stdexcept>
 
@@ -84,6 +85,41 @@ void rind::Enemy::update(float deltaTime) {
         float deltaTime = getEntityManager()->getRenderer()->getDeltaTime();
         glm::vec3 velocityOffset = getVelocity() * deltaTime;
         glm::vec3 currentGunEndPos = glm::vec3(gunEndPosition->getWorldTransform()[3]) + velocityOffset;
+        glm::vec3 rayDir = -glm::normalize(glm::vec3(getHead()->getWorldTransform()[2]));
+        if (trailFramesRemaining == maxTrailFrames) {
+            getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+                glm::scale(
+                    glm::translate(
+                        glm::mat4(1.0f), currentGunEndPos + rayDir * 0.1f
+                    ),
+                    glm::vec3(0.2f, 0.2f, 0.2f)
+                ),
+                glm::scale(
+                    glm::translate(
+                        glm::mat4(1.0f), currentGunEndPos + rayDir * 0.8f
+                    ),
+                    glm::vec3(1.6f, 1.6f, 1.6f)
+                ),
+                glm::vec4(glm::min(glm::vec3(trailColor) + glm::vec3(0.1f), glm::vec3(1.0f)), 12.0f),
+                0.1f
+            );
+            getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+                glm::scale(
+                    glm::translate(
+                        glm::mat4(1.0f), currentGunEndPos + rayDir * 0.25f
+                    ),
+                    glm::vec3(0.5f, 0.5f, 0.5f)
+                ),
+                glm::scale(
+                    glm::translate(
+                        glm::mat4(1.0f), currentGunEndPos + rayDir * 2.5f
+                    ),
+                    glm::vec3(5.0f, 5.0f, 5.0f)
+                ),
+                glm::vec4(0.1f, 0.1f, 0.1f, 0.6f),
+                4.0f
+            );
+        }
         particleManager->spawnTrail(
             currentGunEndPos,
             trailEndPos - currentGunEndPos,

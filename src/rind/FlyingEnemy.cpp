@@ -1,5 +1,6 @@
 #include <rind/FlyingEnemy.h>
 #include <engine/ParticleManager.h>
+#include <engine/VolumetricManager.h>
 #include <glm/gtc/quaternion.hpp>
 #include <rind/SlowBullet.h>
 #include <cmath>
@@ -312,6 +313,38 @@ void rind::FlyingEnemy::shoot() {
         10,
         3.0f,
         0.3f
+    );
+    getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+        glm::scale(
+            glm::translate(
+                glm::mat4(1.0f), gunPos + rayDir * 0.1f
+            ),
+            glm::vec3(0.2f, 0.2f, 0.2f)
+        ),
+        glm::scale(
+            glm::translate(
+                glm::mat4(1.0f), gunPos + rayDir * 1.5f
+            ),
+            glm::vec3(2.5f, 2.5f, 2.5f)
+        ),
+        glm::vec4(glm::min(glm::vec3(trailColor) + glm::vec3(0.1f), glm::vec3(1.0f)), 12.0f),
+        0.1f
+    );
+    getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+        glm::scale(
+            glm::translate(
+                glm::mat4(1.0f), gunPos + rayDir * 0.25f
+            ),
+            glm::vec3(0.5f, 0.5f, 0.5f)
+        ),
+        glm::scale(
+            glm::translate(
+                glm::mat4(1.0f), gunPos + rayDir * 2.5f
+            ),
+            glm::vec3(8.0f, 8.0f, 8.0f)
+        ),
+        glm::vec4(0.1f, 0.1f, 0.1f, 0.5f),
+        5.0f
     );
     audioManager->playSound3D("slowbullet_shot", gunPos, 0.5f, true);
     rind::SlowBullet* slowBullet = new rind::SlowBullet(

@@ -42,7 +42,6 @@ engine::VolumetricManager::~VolumetricManager() {
     for (auto* v : volumetricsCopy) {
         delete v;
     }
-    volumetricsCopy.clear(); 
 }
 
 void engine::VolumetricManager::init() {

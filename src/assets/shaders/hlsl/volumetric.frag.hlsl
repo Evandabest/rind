@@ -25,9 +25,10 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-static const int COARSE_STEPS = 8;
-static const int FINE_STEPS = 8;
+static const float MAX_STEP_SCALE = 4.0;
 static const float THRESHOLD = 0.01;
+static const float LOD_NEAR = 2.0;
+static const float LOD_FAR = 10.0;
 
 float hash3(float3 p) {
     p = frac(p * float3(443.897, 441.423, 437.195));
@@ -85,40 +86,53 @@ float4 main(VSOutput input, float4 fragCoord : SV_Position) : SV_Target {
     tNear = max(tNear, 0.0);
     if (tFar <= tNear) discard;
 
+    float3 volCenter = vol.model[3].xyz;
+    float camDist = length(volCenter - pc.camPos);
+    float lodT = saturate((camDist - LOD_NEAR) / (LOD_FAR - LOD_NEAR));
+    int maxSteps = (int) lerp(64.0, 8.0,  lodT);
+    float baseDivs = lerp(24.0, 6.0, lodT);
+
     float totalLen = tFar - tNear;
-    float coarseSize = totalLen / float(COARSE_STEPS);
-    float fineSize = coarseSize / float(FINE_STEPS);
+    float baseStep = totalLen / baseDivs;
+    float maxStep = baseStep * MAX_STEP_SCALE;
     float extinction = vol.color.w;
     float3 tint = vol.color.rgb;
 
     float4 accum = float4(0.0, 0.0, 0.0, 0.0);
+    float t = tNear;
+    float stepSize = baseStep;
+    int steps = 0;
 
-    for (int i = 0; i < COARSE_STEPS; i++) {
+    [loop]
+    while (t < tFar && steps < maxSteps) {
+        steps++;
         if (accum.a >= 0.99) break;
-        float tCoarse = tNear + (float(i) + 0.5) * coarseSize;
-        float3 localMid = localOrigin + tCoarse * localDir;
+        float3 localMid = localOrigin + (t + stepSize * 0.5) * localDir;
 
         float3 worldMid = mul(float4(localMid, 1.0), vol.model).xyz;
-        float4 clipMid = mul(float4(worldMid, 1.0), pc.viewProj);
+        float4 clipMid = mul(float4(worldMid,  1.0), pc.viewProj);
         float2 depthUV = saturate(clipMid.xy / clipMid.w * 0.5 + 0.5);
         float sceneD = depthTexture.SampleLevel(depthSampler, depthUV, 0);
         float sampleD = clipMid.z / clipMid.w;
         if (sceneD < 1.0 && sampleD > sceneD) break;
 
-        float coarseDensity = sampleDensity(localMid, vol.age, vol.lifetime);
-        if (coarseDensity <= THRESHOLD) continue;
-
-        float tFineBase = tNear + float(i) * coarseSize;
-        for (int j = 0; j < FINE_STEPS; j++) {
-            if (accum.a >= 0.99) break;
-            float tFine = tFineBase + (float(j) + 0.5) * fineSize;
-            float3 localFine = localOrigin + tFine * localDir;
-            float density = sampleDensity(localFine, vol.age, vol.lifetime);
-            float alpha = 1.0 - exp(-density * extinction * fineSize);
-
-            accum.rgb += (1.0 - accum.a) * alpha * tint;
-            accum.a += (1.0 - accum.a) * alpha;
+        float density = sampleDensity(localMid, vol.age, vol.lifetime);
+        if (density <= THRESHOLD) {
+            stepSize = min(stepSize * 1.5, maxStep);
+            t += stepSize;
+            continue;
         }
+
+        if (stepSize > baseStep * 1.1) {
+            t = max(t - stepSize * 0.5, tNear);
+            stepSize = baseStep;
+            continue;
+        }
+
+        float alpha = 1.0 - exp(-density * extinction * stepSize);
+        accum.rgb += (1.0 - accum.a) * alpha * tint;
+        accum.a += (1.0 - accum.a) * alpha;
+        t += stepSize;
     }
 
     if (accum.a < 0.001) discard;
