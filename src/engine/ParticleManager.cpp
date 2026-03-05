@@ -4,8 +4,8 @@
 #include <engine/Camera.h>
 #include <engine/SpatialGrid.h>
 
-engine::Particle::Particle(ParticleManager* particleManager, EntityManager* entityManager, const glm::mat4& transform, const glm::vec4& color, const glm::vec3& velocity, float lifetime, float type)
-   : particleManager(particleManager), entityManager(entityManager), transform(transform), color(color), velocity(velocity), lifetime(lifetime), type(type) {
+engine::Particle::Particle(ParticleManager* particleManager, EntityManager* entityManager, const glm::mat4& transform, const glm::vec3& color, const glm::vec3& velocity, float lifetime, float type, float size)
+   : particleManager(particleManager), entityManager(entityManager), transform(transform), color(color), velocity(velocity), lifetime(lifetime), type(type), size(size) {
         particleManager->registerParticle(this);
         prevPosition = glm::vec3(transform[3]);
         prevPrevPosition = prevPosition;
@@ -276,7 +276,7 @@ void engine::ParticleManager::createParticleDescriptorSets() {
     }
 }
 
-void engine::ParticleManager::burstParticles(const glm::mat4& transform, const glm::vec4& color, const glm::vec3& velocity, int count, float lifetime, float spread) {
+void engine::ParticleManager::burstParticles(const glm::mat4& transform, const glm::vec3& color, const glm::vec3& velocity, int count, float lifetime, float spread, float size) {
     float velLength = glm::length(velocity) + dist(rng) * 0.1f * glm::length(velocity);
     for (int i = 0; i < count; ++i) {
         float offsetX = dist(rng) * spread * velLength;
@@ -285,13 +285,13 @@ void engine::ParticleManager::burstParticles(const glm::mat4& transform, const g
         glm::vec3 velocityOffset = glm::vec3(offsetX, offsetY, offsetZ);
         float particleLifetime = lifetime + dist(rng) * 0.2f * lifetime;
         glm::vec3 colorOffset = glm::vec3(dist(rng), dist(rng), dist(rng)) * 0.1f;
-        glm::vec4 particleColor = color + glm::vec4(colorOffset, 0.0f);
-        particleColor = glm::clamp(particleColor, glm::vec4(0.0f), glm::vec4(1.0f));
-        new Particle(this, renderer->getEntityManager(), transform, particleColor, velocity + velocityOffset, particleLifetime);
+        glm::vec3 particleColor = color + colorOffset;
+        particleColor = glm::clamp(particleColor, glm::vec3(0.0f), glm::vec3(1.0f));
+        new Particle(this, renderer->getEntityManager(), transform, particleColor, velocity + velocityOffset, particleLifetime, 0.0f, size);
     }
 }
 
-void engine::ParticleManager::spawnTrail(const glm::vec3& start, const glm::vec3& dir, const glm::vec4& color, float lifetime, float fakeAge) {
+void engine::ParticleManager::spawnTrail(const glm::vec3& start, const glm::vec3& dir, const glm::vec3& color, float lifetime, float fakeAge) {
     Particle* p = new Particle(this, renderer->getEntityManager(), glm::translate(glm::mat4(1.0f), start), color, glm::vec3(0.0f), lifetime, 1.0f);
     p->setPrevPosition(dir);
     p->setPrevPrevPosition(start);

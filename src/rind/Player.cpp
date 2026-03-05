@@ -162,6 +162,7 @@ rind::Player::Player(engine::EntityManager* entityManager, engine::InputManager*
         scoreCounter = new ScoreCounter(entityManager, entityManager->getRenderer()->getUIManager());
         particleManager = entityManager->getRenderer()->getParticleManager();
         audioManager = entityManager->getRenderer()->getAudioManager();
+        volumetricManager = entityManager->getRenderer()->getVolumetricManager();
     }
 
 rind::Player::~Player() {
@@ -278,7 +279,7 @@ void rind::Player::update(float deltaTime) {
         glm::vec3 currentGunEndPos = predictedGunModelPos + (pitchDelta * gunOffsetFromGunModel);
         glm::vec3 rayDir = -glm::normalize(glm::vec3(camera->getWorldTransform()[2]));
         if (trailFramesRemaining == maxTrailFrames) {
-            getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+            volumetricManager->createVolumetric(
                 glm::scale(
                     glm::translate(
                         glm::mat4(1.0f), currentGunEndPos + rayDir * 0.1f
@@ -294,7 +295,7 @@ void rind::Player::update(float deltaTime) {
                 glm::vec4(1.0f, 0.2f, 0.2f, 12.0f),
                 0.1f
             );
-            getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+            volumetricManager->createVolumetric(
                 glm::scale(
                     glm::translate(
                         glm::mat4(1.0f), currentGunEndPos + rayDir * 0.25f
@@ -528,7 +529,17 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                 -glm::normalize(getVelocity()) * 20.0f,
                 50,
                 2.0f,
-                2.0f
+                2.0f,
+                1.2f
+            );
+            particleManager->burstParticles(
+                glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+                trailColor,
+                -glm::normalize(getVelocity()) * 15.0f,
+                50,
+                2.0f,
+                2.0f,
+                0.5f
             );
             audioManager->playSound3D("player_dash", getWorldPosition(), 0.5f, true);
             lastDashTime = now;
@@ -592,6 +603,7 @@ void rind::Player::damage(float amount) {
             glm::vec3(0.0f, 1.0f, 0.0f) * 5.0f,
             200,
             5.0f,
+            0.5f,
             0.5f
         );
         particleManager->burstParticles(
@@ -600,6 +612,7 @@ void rind::Player::damage(float amount) {
             glm::vec3(0.0f, 1.0f, 0.0f) * 10.0f,
             200,
             8.0f,
+            1.0f,
             1.0f
         );
         getCollider()->setTransform(
@@ -618,10 +631,20 @@ void rind::Player::shoot() {
     particleManager->burstParticles(
         glm::translate(glm::mat4(1.0f), gunPos),
         glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
-        rayDir * 15.0f,
+        rayDir * 10.0f,
         10,
         3.0f,
-        0.3f
+        0.2f,
+        0.8f
+    );
+    particleManager->burstParticles(
+        glm::translate(glm::mat4(1.0f), gunPos),
+        glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+        rayDir * 15.0f,
+        40,
+        3.0f,
+        0.2f,
+        0.2f
     );
     std::vector<engine::Collider::Collision> hits = engine::Collider::raycast(
         getEntityManager(),
@@ -643,7 +666,8 @@ void rind::Player::shoot() {
             reflectedDir * 40.0f,
             50,
             4.0f,
-            0.5f
+            0.5f,
+            0.8f
         );
         particleManager->burstParticles(
             glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
@@ -651,7 +675,8 @@ void rind::Player::shoot() {
             reflectedDir * 25.0f,
             30,
             4.0f,
-            0.4f
+            0.4f,
+            0.5f
         );
         particleManager->burstParticles(
             glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
@@ -659,6 +684,16 @@ void rind::Player::shoot() {
             reflectedDir * 10.0f,
             50,
             2.0f,
+            0.3f,
+            0.7f
+        );
+        particleManager->burstParticles(
+            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
+            trailColor,
+            reflectedDir * 20.0f,
+            50,
+            3.0f,
+            0.35f,
             0.3f
         );
         if (rind::Enemy* character = dynamic_cast<rind::Enemy*>(collision.other->getParent())) {

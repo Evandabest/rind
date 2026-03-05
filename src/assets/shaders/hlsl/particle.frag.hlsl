@@ -11,7 +11,9 @@ struct PushConstants {
     float4x4 viewProj;
     float2 screenSize;
     float particleSize;
+    float trailWidth;
     float streakScale;
+    float pad;
 };
 
 [[vk::push_constant]] PushConstants pc;

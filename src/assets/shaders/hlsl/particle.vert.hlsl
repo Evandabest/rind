@@ -8,13 +8,10 @@ struct VSOutput {
 };
 
 struct ParticleData {
-    float3 position;
-    float age;
-    float3 prevPosition;
-    float lifetime;
-    float3 prevPrevPosition;
-    float type;
-    float4 color;
+    float4 position; // w = age
+    float4 prevPosition; // w = lifetime
+    float4 prevPrevPosition; // w = type
+    float4 color; // w = size
 };
 
 [[vk::binding(0)]] StructuredBuffer<ParticleData> particles;
@@ -45,9 +42,15 @@ float hash(uint seed) {
 VSOutput main(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
     VSOutput output;
     ParticleData p = particles[instanceID];
-    if (p.type > 0.5) {
-        float3 startPos = p.position;
-        float3 dir = p.prevPosition;
+
+    float age = p.position.w;
+    float lifetime = p.prevPosition.w;
+    float type = p.prevPrevPosition.w;
+    float size = p.color.w;
+
+    if (type > 0.5) { // trail particle
+        float3 startPos = p.position.xyz;
+        float3 dir = p.prevPosition.xyz;
         float3 endPos = startPos + dir;
         
         float3 lineDir = normalize(dir);
@@ -69,17 +72,16 @@ VSOutput main(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
         
         output.gl_Position = posClip;
         output.uv = float2(localOffset.x * 0.5 + 0.5, t);
-        output.age = p.age / p.lifetime;
-        output.color = p.color;
-        output.color.a = -1.0; // marks this as a trail
+        output.age = age / lifetime;
+        output.color = float4(p.color.xyz, -1.0); // marks this as a trail
         return output;
     }
 
-    float4 clipPos = mul(float4(p.position, 1.0), pc.viewProj);
-    float3 trailDir = bezierTangent(p.prevPrevPosition, p.prevPosition, p.position, 1.0);
+    float4 clipPos = mul(float4(p.position.xyz, 1.0), pc.viewProj);
+    float3 trailDir = bezierTangent(p.prevPrevPosition.xyz, p.prevPosition.xyz, p.position.xyz, 1.0);
     float trailLen = length(trailDir);
     if (trailLen < 0.0001) {
-        trailDir = p.position - p.prevPosition;
+        trailDir = p.position.xyz - p.prevPosition.xyz;
         trailLen = length(trailDir);
     }
     float4 trailClip = mul(float4(trailDir, 0.0), pc.viewProj);
@@ -88,8 +90,8 @@ VSOutput main(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
     float2 perpDir = float2(-stretchDir.y, stretchDir.x);
     float stretchLen = trailLen * pc.streakScale;
     
-    float sizeVariation = hash(instanceID) * 1.9 + 0.1; // range [0.1, 2.0]
-    float particleSize = pc.particleSize * sizeVariation * sqrt(20.0 / max(clipPos.w, 0.01));
+    float sizeVariation = hash(instanceID) * 1.5 + 0.5; // range [0.5, 1.5]
+    float particleSize = size * pc.particleSize * sizeVariation * sqrt(20.0 / max(clipPos.w, 0.01));
     
     float2 localOffset = offsets[vertexID];
     float alongVel = localOffset.y * (particleSize + stretchLen);
@@ -101,7 +103,7 @@ VSOutput main(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
     
     output.gl_Position = clipPos;
     output.uv = offsets[vertexID] * 0.5 + 0.5;
-    output.age = p.age / p.lifetime;
-    output.color = p.color;
+    output.age = age / lifetime;
+    output.color = float4(p.color.xyz, 1.0);
     return output;
 }

@@ -3,6 +3,7 @@
 #include <engine/CharacterEntity.h>
 #include <engine/AudioManager.h>
 #include <engine/ParticleManager.h>
+#include <engine/VolumetricManager.h>
 #include <rind/Player.h>
 #include <random>
 
@@ -43,6 +44,7 @@ namespace rind {
     protected:
         engine::AudioManager* audioManager = nullptr;
         engine::ParticleManager* particleManager = nullptr;
+        engine::VolumetricManager* volumetricManager = nullptr;
         uint32_t& enemyCount;
         EnemyState state = EnemyState::Spawning;
         bool firstFrame = true;
@@ -69,6 +71,6 @@ namespace rind {
         uint32_t trailFramesRemaining = 0u;
         uint32_t maxTrailFrames = 5u;
         glm::vec3 trailEndPos = glm::vec3(0.0f);
-        glm::vec4 trailColor = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
+        virtual glm::vec3 getTrailColor() const { return glm::vec3(0.0f, 0.0f, 1.0f); }
     };
 };

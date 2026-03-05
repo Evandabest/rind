@@ -47,6 +47,7 @@ namespace rind {
         engine::InputManager* inputManager = nullptr;
         engine::ParticleManager* particleManager = nullptr;
         engine::AudioManager* audioManager = nullptr;
+        engine::VolumetricManager* volumetricManager = nullptr;
         float mouseSensitivity = 0.003f;
 
         engine::UIObject* pauseUIObject = nullptr;
@@ -72,6 +73,6 @@ namespace rind {
         uint32_t trailFramesRemaining = 0u;
         uint32_t maxTrailFrames = 5u;
         glm::vec3 trailEndPos = glm::vec3(0.0f);
-        glm::vec4 trailColor = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+        glm::vec3 trailColor = glm::vec3(1.0f, 0.0f, 0.0f);
     };
 };

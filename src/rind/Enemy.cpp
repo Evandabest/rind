@@ -13,6 +13,7 @@ rind::Enemy::Enemy(engine::EntityManager* entityManager, rind::Player* player, c
         }
         audioManager = getEntityManager()->getRenderer()->getAudioManager();
         particleManager = getEntityManager()->getRenderer()->getParticleManager();
+        volumetricManager = getEntityManager()->getRenderer()->getVolumetricManager();
     }
 
 void rind::Enemy::shoot() {
@@ -20,11 +21,12 @@ void rind::Enemy::shoot() {
     glm::vec3 gunPos = gunEndPosition->getWorldPosition();
     particleManager->burstParticles(
         glm::translate(glm::mat4(1.0f), gunPos),
-        trailColor,
+        getTrailColor(),
         rayDir * 15.0f,
         10,
         3.0f,
-        0.3f
+        0.3f,
+        0.7f
     );
     std::vector<engine::Collider::Collision> hits = engine::Collider::raycast(
         getEntityManager(),
@@ -42,27 +44,30 @@ void rind::Enemy::shoot() {
         glm::vec3 reflectedDir = glm::reflect(rayDir, normal);
         particleManager->burstParticles(
             glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
-            trailColor,
+            getTrailColor(),
             reflectedDir * 40.0f,
             50,
             4.0f,
+            0.5f,
+            0.8f
+        );
+        particleManager->burstParticles(
+            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
+            getTrailColor(),
+            reflectedDir * 25.0f,
+            30,
+            4.0f,
+            0.4f,
             0.5f
         );
         particleManager->burstParticles(
             glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
-            trailColor,
-            reflectedDir * 25.0f,
-            30,
-            4.0f,
-            0.4f
-        );
-        particleManager->burstParticles(
-            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
-            trailColor,
+            getTrailColor(),
             reflectedDir * 10.0f,
             50,
             2.0f,
-            0.3f
+            0.3f,
+            0.7f
         );
         if (rind::Player* character = dynamic_cast<rind::Player*>(collision.other->getParent())) {
             character->damage(5.0f);
@@ -87,7 +92,7 @@ void rind::Enemy::update(float deltaTime) {
         glm::vec3 currentGunEndPos = glm::vec3(gunEndPosition->getWorldTransform()[3]) + velocityOffset;
         glm::vec3 rayDir = -glm::normalize(glm::vec3(getHead()->getWorldTransform()[2]));
         if (trailFramesRemaining == maxTrailFrames) {
-            getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+            volumetricManager->createVolumetric(
                 glm::scale(
                     glm::translate(
                         glm::mat4(1.0f), currentGunEndPos + rayDir * 0.1f
@@ -100,10 +105,10 @@ void rind::Enemy::update(float deltaTime) {
                     ),
                     glm::vec3(1.6f, 1.6f, 1.6f)
                 ),
-                glm::vec4(glm::min(glm::vec3(trailColor) + glm::vec3(0.1f), glm::vec3(1.0f)), 12.0f),
+                glm::vec4(glm::min(getTrailColor() + glm::vec3(0.1f), glm::vec3(1.0f)), 12.0f),
                 0.1f
             );
-            getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+            volumetricManager->createVolumetric(
                 glm::scale(
                     glm::translate(
                         glm::mat4(1.0f), currentGunEndPos + rayDir * 0.25f
@@ -123,11 +128,26 @@ void rind::Enemy::update(float deltaTime) {
         particleManager->spawnTrail(
             currentGunEndPos,
             trailEndPos - currentGunEndPos,
-            trailColor,
+            getTrailColor(),
             deltaTime * 2.0f,
             (static_cast<float>(maxTrailFrames) - static_cast<float>(trailFramesRemaining)) / static_cast<float>(maxTrailFrames) * deltaTime
         );
         trailFramesRemaining--;
+    }
+    float spawnCloud = pow(dist(rng) + 1.0f, (getMaxHealth() - getHealth()) / getMaxHealth());
+    if (spawnCloud < 0.2f) {
+        volumetricManager->createVolumetric(
+            glm::scale(
+                glm::translate(glm::mat4(1.0f), getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f)),
+                glm::vec3(2.0f, 2.0f, 2.0f)
+            ),
+            glm::scale(
+                glm::translate(glm::mat4(1.0f), getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f)),
+                glm::vec3(20.0f, 20.0f, 20.0f)
+            ),
+            glm::vec4(0.1f, 0.1f, 0.1f, 0.6f),
+            2.0f
+        );
     }
 }
 
@@ -165,6 +185,60 @@ void rind::Enemy::damage(float amount) {
     setHealth(getHealth() - amount);
     if (getHealth() <= 0.0f) {
         targetPlayer->addScore(getScoreWorth());
+        volumetricManager->createVolumetric(
+            glm::scale(
+                getWorldTransform(),
+                glm::vec3(2.0f, 2.0f, 2.0f)
+            ),
+            glm::scale(
+                getWorldTransform(),
+                glm::vec3(10.0f, 10.0f, 10.0f)
+            ),
+            glm::vec4(glm::min(getTrailColor() + glm::vec3(0.2f), glm::vec3(1.0f)), 20.0f),
+            0.5f
+        );
+        volumetricManager->createVolumetric(
+            glm::scale(
+                getWorldTransform(),
+                glm::vec3(5.0f, 5.0f, 5.0f)
+            ),
+            glm::scale(
+                getWorldTransform(),
+                glm::vec3(20.0f, 20.0f, 20.0f)
+            ),
+            glm::vec4(glm::min(getTrailColor() + glm::vec3(0.2f), glm::vec3(1.0f)), 1.0f),
+            2.0f
+        );
+        volumetricManager->createVolumetric(
+            glm::scale(
+                getWorldTransform(),
+                glm::vec3(6.0f, 6.0f, 6.0f)
+            ),
+            glm::scale(
+                getWorldTransform(),
+                glm::vec3(25.0f, 25.0f, 25.0f)
+            ),
+            glm::vec4(0.1f, 0.1f, 0.1f, 0.4f),
+            4.0f
+        );
+        particleManager->burstParticles(
+            glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+            getTrailColor(),
+            glm::vec3(0.0f, 1.0f, 0.0f) * 5.0f,
+            200,
+            5.0f,
+            0.5f,
+            0.5f
+        );
+        particleManager->burstParticles(
+            glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+            getTrailColor(),
+            glm::vec3(0.0f, 1.0f, 0.0f) * 10.0f,
+            200,
+            8.0f,
+            1.0f,
+            1.0f
+        );
         getEntityManager()->markForDeletion(this);
     }
 }

@@ -8,17 +8,14 @@
 namespace engine {
     class ParticleManager;
     struct ParticleGPU {
-        glm::vec3 position;
-        float age;
-        glm::vec3 prevPosition;
-        float lifetime;
-        glm::vec3 prevPrevPosition;
-        float type;
-        glm::vec4 color;
+        glm::vec4 position; // w = age
+        glm::vec4 prevPosition; // w = lifetime
+        glm::vec4 prevPrevPosition; // w = type
+        glm::vec4 color; // w = size
     };
     class Particle {
     public:
-        Particle(ParticleManager* particleManager, EntityManager* entityManager, const glm::mat4& transform, const glm::vec4& color, const glm::vec3& velocity, float lifetime, float type = 0.0f);
+        Particle(ParticleManager* particleManager, EntityManager* entityManager, const glm::mat4& transform, const glm::vec3& color, const glm::vec3& velocity, float lifetime, float type = 0.0f, float size = 1.0f);
         ~Particle();
         void update(float deltaTime);
 
@@ -26,13 +23,10 @@ namespace engine {
 
         ParticleGPU getGPUData() const {
             return {
-                .position = glm::vec3(transform[3]),
-                .age = age,
-                .prevPosition = prevPosition,
-                .lifetime = lifetime,
-                .prevPrevPosition = prevPrevPosition,
-                .type = type,
-                .color = color
+                .position = glm::vec4(glm::vec3(transform[3]), age),
+                .prevPosition = glm::vec4(prevPosition, lifetime),
+                .prevPrevPosition = glm::vec4(prevPrevPosition, type),
+                .color = glm::vec4(color, size)
             };
         }
 
@@ -56,7 +50,8 @@ namespace engine {
         float lifetime = 0.0f;
         float age = 0.0f;
         float type = 0.0f;
-        glm::vec4 color;
+        float size = 1.0f;
+        glm::vec3 color;
         bool markedForDeletion = false;
     };
     class ParticleManager {
@@ -66,8 +61,8 @@ namespace engine {
         void init();
         void clear();
 
-        void burstParticles(const glm::mat4& transform, const glm::vec4& color, const glm::vec3& velocity, int count, float lifetime, float spread);
-        void spawnTrail(const glm::vec3& start, const glm::vec3& dir, const glm::vec4& color, float lifetime, float fakeAge = 0.0f);
+        void burstParticles(const glm::mat4& transform, const glm::vec3& color, const glm::vec3& velocity, int count, float lifetime, float spread, float size = 1.0f);
+        void spawnTrail(const glm::vec3& start, const glm::vec3& dir, const glm::vec3& color, float lifetime, float fakeAge = 0.0f);
 
         void registerParticle(Particle* particle) {
             particles.push_back(particle);

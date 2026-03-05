@@ -308,13 +308,13 @@ void rind::FlyingEnemy::shoot() {
     glm::vec3 gunPos = gunEndPosition->getWorldPosition();
     particleManager->burstParticles(
         glm::translate(glm::mat4(1.0f), gunPos),
-        trailColor,
+        getTrailColor(),
         rayDir * 15.0f,
         10,
         3.0f,
         0.3f
     );
-    getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+    volumetricManager->createVolumetric(
         glm::scale(
             glm::translate(
                 glm::mat4(1.0f), gunPos + rayDir * 0.1f
@@ -327,10 +327,10 @@ void rind::FlyingEnemy::shoot() {
             ),
             glm::vec3(2.5f, 2.5f, 2.5f)
         ),
-        glm::vec4(glm::min(glm::vec3(trailColor) + glm::vec3(0.1f), glm::vec3(1.0f)), 12.0f),
+        glm::vec4(glm::min(getTrailColor() + glm::vec3(0.1f), glm::vec3(1.0f)), 12.0f),
         0.1f
     );
-    getEntityManager()->getRenderer()->getVolumetricManager()->createVolumetric(
+    volumetricManager->createVolumetric(
         glm::scale(
             glm::translate(
                 glm::mat4(1.0f), gunPos + rayDir * 0.25f
@@ -352,6 +352,6 @@ void rind::FlyingEnemy::shoot() {
         "slowBullet" + getName() + std::to_string(spawnedBullets++),
         glm::translate(glm::mat4(1.0f), gunPos + rayDir * 0.5f),
         rayDir * 10.0f,
-        trailColor
+        getTrailColor()
     );
 }
