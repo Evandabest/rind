@@ -50,11 +50,11 @@ engine::TextureManager::~TextureManager() {
 }
 
 void engine::TextureManager::init() {
-    std::function<void(const std::string& directory, std::string parentPath)> scanAndLoadTextures = [&](const std::string& directory, std::string parentPath) {
+    auto scanAndLoadTextures = [&](auto& self, const std::string& directory, std::string parentPath) -> void {
         std::vector<std::string> textureFiles = engine::scanDirectory(directory);
         for (const auto& filePath : textureFiles) {
             if (std::filesystem::is_directory(filePath)) {
-                scanAndLoadTextures(filePath, parentPath + std::filesystem::path(filePath).filename().string() + "_");
+                self(self, filePath, parentPath + std::filesystem::path(filePath).filename().string() + "_");
                 continue;
             }
             if (!std::filesystem::is_regular_file(filePath)) {
@@ -166,7 +166,7 @@ void engine::TextureManager::init() {
             textures[textureName] = texture;
         }
     };
-    scanAndLoadTextures(textureDirectory, "");
+    scanAndLoadTextures(scanAndLoadTextures, textureDirectory, "");
 }
 
 engine::Texture* engine::TextureManager::getTexture(const std::string& name) {

@@ -356,11 +356,16 @@ void engine::UIManager::loadTextures() {
 }
 
 void engine::UIManager::loadFonts() {
-    std::function<void(const std::string& directory, std::string parentPath)> scanAndLoadFonts = [&](const std::string& directory, std::string parentPath) {
+    FT_Library ft;
+    if (FT_Init_FreeType(&ft)) {
+        std::cout << "Error: Could not init FreeType Library\n";
+        return;
+    }
+    auto scanAndLoadFonts = [&](auto& self, const std::string& directory, std::string parentPath) -> void {
         std::vector<std::string> fontFiles = engine::scanDirectory(directory);
         for (const auto& filePath : fontFiles) {
             if (std::filesystem::is_directory(filePath)) {
-                scanAndLoadFonts(filePath, parentPath + std::filesystem::path(filePath).filename().string() + "_");
+                self(self, filePath, parentPath + std::filesystem::path(filePath).filename().string() + "_");
                 continue;
             }
             if (!std::filesystem::is_regular_file(filePath)) {
@@ -370,11 +375,6 @@ void engine::UIManager::loadFonts() {
             std::string fontName = parentPath + std::filesystem::path(fileName).stem().string();
             if (fonts.find(fontName) != fonts.end()) {
                 std::cout << "Warning: Duplicate font name detected: " << fontName << ". Skipping " << filePath << "\n";
-                continue;
-            }
-            FT_Library ft;
-            if (FT_Init_FreeType(&ft)) {
-                std::cout << "Error: Could not init FreeType Library\n";
                 continue;
             }
             FT_Face face;
@@ -491,7 +491,7 @@ void engine::UIManager::loadFonts() {
             FT_Done_FreeType(ft);
         }
     };
-    scanAndLoadFonts(fontDirectory, "");
+    scanAndLoadFonts(scanAndLoadFonts, fontDirectory, "");
 }
 
 engine::LayoutRect engine::UIManager::resolveDesignRect(std::variant<UIObject*, TextObject*> node, const LayoutRect& parentRect) {
@@ -602,7 +602,7 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vb, offsets);
     vkCmdBindIndexBuffer(commandBuffer, ib, 0, VK_INDEX_TYPE_UINT16);
 
-    std::function<void(UIObject*, const LayoutRect&)> drawUIObject = [&](UIObject* object, const LayoutRect& rect) {
+    auto drawUIObject = [&](UIObject* object, const LayoutRect& rect) -> void {
         if (!object->isEnabled()) return;
         GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("ui");
         if (shaders.find(shader) == shaders.end()) {
@@ -636,7 +636,7 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node
         vkCmdPushConstants(commandBuffer, shader->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(UIPC), &pushConstants);
         vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
     };
-    std::function<void(TextObject*, const LayoutRect&, const LayoutRect&, const LayoutRect&)> drawTextObject = [&](TextObject* object, const LayoutRect& rect, const LayoutRect& pixelRect, const LayoutRect& parentRect) {
+    auto drawTextObject = [&](TextObject* object, const LayoutRect& rect, const LayoutRect& pixelRect, const LayoutRect& parentRect) -> void {
         if (!object->isEnabled() || object->getText().empty()) return;
         GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("text");
         if (shaders.find(shader) == shaders.end()) {
@@ -675,7 +675,7 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node
 
         const std::string& text = object->getText();
         for (const char& c : text) {
-            const Character& ch = fonts[object->getFont()].characters[c];
+            const Character& ch = fontInfo.characters.at(c);
             float xpos = x + ch.bearing.x * scaleX;
             float ypos = y - (ch.size.y - ch.bearing.y) * scaleY;
             float w = ch.size.x * scaleX;
@@ -714,7 +714,7 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node
         .size = swapExtentF / layoutScale
     };
 
-    std::function<void(std::variant<UIObject*, TextObject*>, const LayoutRect&, bool)> traverse = [&](std::variant<UIObject*, TextObject*> node, const LayoutRect& parentRect, bool isRoot) {
+    auto traverse = [&](auto& self, std::variant<UIObject*, TextObject*> node, const LayoutRect& parentRect, bool isRoot) -> void {
         const LayoutRect& anchorRect = isRoot ? rootAnchorRect : parentRect;
         
         if (std::holds_alternative<UIObject*>(node)) {
@@ -723,7 +723,7 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node
             LayoutRect pixelRect = toPixelRect(designRect, glm::vec2(0.0f), layoutScale);
             drawUIObject(obj, pixelRect);
             for (const auto& child : obj->getChildren()) {
-                traverse(child, designRect, false);
+                self(self, child, designRect, false);
             }
         } else {
             TextObject* obj = std::get<TextObject*>(node);
@@ -736,7 +736,7 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node
     for (auto& [name, obj] : objects) {
         bool isRoot = std::holds_alternative<TextObject*>(obj) ? (std::get<TextObject*>(obj)->getParent() == nullptr) : (std::get<UIObject*>(obj)->getParent() == nullptr);
         if (isRoot) {
-            traverse(obj, rootAnchorRect, true);
+            traverse(traverse, obj, rootAnchorRect, true);
         }
     }
 }
@@ -757,7 +757,7 @@ engine::UIObject* engine::UIManager::processMouseMovement(GLFWwindow* window, do
     bool foundHover = false;
     UIObject* hoveredObject = nullptr;
     UIObject* lastHovered = renderer->getHoveredObject();
-    std::function<void(UIObject*, const LayoutRect&, bool)> traverse = [&](UIObject* node, const LayoutRect& parentRect, bool isRoot) {
+    auto traverse = [&](auto& self, UIObject* node, const LayoutRect& parentRect, bool isRoot) -> void {
         if (!node || !node->isEnabled()) return;
         const LayoutRect& anchorRect = isRoot ? rootAnchorRect : parentRect;
         LayoutRect designRect = resolveDesignRect(node, anchorRect);
@@ -769,7 +769,7 @@ engine::UIObject* engine::UIManager::processMouseMovement(GLFWwindow* window, do
             && mouseDesign.y <= designRect.position.y + designRect.size.y;
         for (const auto& child : node->getChildren()) {
             if (std::holds_alternative<UIObject*>(child)) {
-                traverse(std::get<UIObject*>(child), designRect, false);
+                self(self, std::get<UIObject*>(child), designRect, false);
                 if (foundHover) return;
             }
         }
@@ -782,7 +782,7 @@ engine::UIObject* engine::UIManager::processMouseMovement(GLFWwindow* window, do
     };
     for (auto& [name, obj] : objects) {
         if (std::holds_alternative<UIObject*>(obj) && std::get<UIObject*>(obj)->getParent() == nullptr) {
-            traverse(std::get<UIObject*>(obj), rootAnchorRect, true);
+            traverse(traverse, std::get<UIObject*>(obj), rootAnchorRect, true);
         }
     }
     if (hoveredObject && hoveredObject != lastHovered) {

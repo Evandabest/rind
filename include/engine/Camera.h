@@ -34,19 +34,31 @@ namespace engine {
         float getNearPlane() const { return nearPlane; }
         float getFarPlane() const { return farPlane; }
         glm::mat4 getViewMatrix() const {
-            glm::mat4 worldTransform = getWorldTransform();
-            return glm::inverse(worldTransform);
+            return cachedView;
         }
         glm::mat4 getProjectionMatrix() const {
-            glm::mat4 proj = glm::perspective(glm::radians(fovY), aspectRatio, nearPlane, farPlane);
-            proj[1][1] *= -1.0f;
-            return proj;
+            return cachedProj;
+        }
+        glm::mat4 getInvViewMatrix() const {
+            return cachedInvView;
+        }
+        glm::mat4 getInvProjectionMatrix() const {
+            return cachedInvProj;
+        }
+        glm::mat4 getViewProjectionMatrix() const {
+            return cachedViewProj;
         }
         void update(float deltaTime) override {
+            cachedInvView = getWorldTransform();
+            cachedView = glm::inverse(cachedInvView);
+            cachedProj = glm::perspective(glm::radians(fovY), aspectRatio, nearPlane, farPlane);
+            cachedProj[1][1] *= -1.0f;
+            cachedInvProj = glm::inverse(cachedProj);
+            cachedViewProj = cachedProj * cachedView;
             updateFrustumPlanes();
         }
         void updateFrustumPlanes() {
-            glm::mat4 viewProj = glm::transpose(getProjectionMatrix() * getViewMatrix());
+            glm::mat4 viewProj = glm::transpose(cachedViewProj);
             // Left
             frustumPlanes[0] = viewProj[3] + viewProj[0];
             // Right
@@ -105,6 +117,13 @@ namespace engine {
         float aspectRatio;
         float nearPlane;
         float farPlane;
+
+        glm::mat4 cachedView;
+        glm::mat4 cachedProj;
+        glm::mat4 cachedInvView;
+        glm::mat4 cachedInvProj;
+        glm::mat4 cachedViewProj;
+
         std::array<glm::vec4, 6> frustumPlanes;
     };
 };

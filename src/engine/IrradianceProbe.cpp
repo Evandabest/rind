@@ -265,19 +265,6 @@ void engine::IrradianceProbe::bakeCubemap(Renderer* renderer, VkCommandBuffer co
         6
     );
     
-    struct CubeFace {
-        glm::vec3 dir;
-        glm::vec3 up;
-    };
-    CubeFace faces[6] = {
-        { glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // +X
-        { glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // -X
-        { glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f) }, // +Y
-        { glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f) }, // -Y
-        { glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // +Z
-        { glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f) }  // -Z
-    };
-    glm::mat4 viewProjs[6];
     glm::vec3 probePos = getWorldPosition();
     glm::mat4 cubeProj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, radius);
     for (int i = 0; i < 6; ++i) {
@@ -300,7 +287,7 @@ void engine::IrradianceProbe::bakeCubemap(Renderer* renderer, VkCommandBuffer co
     };
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
     int entitiesUsed = 0;
-    std::function<void(Entity*, glm::mat4&)> drawStaticEntity = [&](Entity* entity, glm::mat4& viewProj) {
+    auto drawStaticEntity = [&](auto& self, Entity* entity, glm::mat4& viewProj) -> void {
         if (!entity->getIsMovable()
          && entity->getModel()
          && entity->getShader() == "gbuffer"
@@ -323,7 +310,7 @@ void engine::IrradianceProbe::bakeCubemap(Renderer* renderer, VkCommandBuffer co
                 sizeof(IrradianceBakePC),
                 &pc
             );
-            std::vector<VkDescriptorSet> descriptorSets = entity->getDescriptorSets();
+            const std::vector<VkDescriptorSet>& descriptorSets = entity->getDescriptorSets();
             vkCmdBindDescriptorSets(
                 commandBuffer,
                 VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -338,7 +325,7 @@ void engine::IrradianceProbe::bakeCubemap(Renderer* renderer, VkCommandBuffer co
             entitiesUsed++;
         }
         for (Entity* child : entity->getChildren()) {
-            drawStaticEntity(child, viewProj);
+            self(self, child, viewProj);
         }
     };
     for (uint32_t face = 0u; face < 6u; ++face) {
@@ -362,7 +349,7 @@ void engine::IrradianceProbe::bakeCubemap(Renderer* renderer, VkCommandBuffer co
         };
         renderer->getFpCmdBeginRendering()(commandBuffer, &renderingInfo);
         for (Entity* rootEntity : rootEntities) {
-            drawStaticEntity(rootEntity, viewProjs[face]);
+            drawStaticEntity(drawStaticEntity, rootEntity, viewProjs[face]);
         }
         renderer->getFpCmdEndRendering()(commandBuffer);
     }
@@ -537,6 +524,7 @@ void engine::IrradianceProbe::renderDynamicCubemap(Renderer* renderer, VkCommand
     const std::vector<Particle*>& particles = particleManager->getParticles();
     size_t currentParticleCount = particles.size();
     
+    // update if there are particles in the scene, or all particles disappeared
     bool particlesChanged = (currentParticleCount > 0) || (currentParticleCount != lastParticleCount);
     lastParticleCount = currentParticleCount;
     
@@ -582,24 +570,6 @@ void engine::IrradianceProbe::renderDynamicCubemap(Renderer* renderer, VkCommand
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipeline);
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipelineLayout, 0, 1, &particleManager->getDescriptorSets()[currentFrame], 0, nullptr);
 
-    struct CubeFace {
-        glm::vec3 dir;
-        glm::vec3 up;
-    };
-    CubeFace faces[6] = {
-        { glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // +X
-        { glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // -X
-        { glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f) }, // +Y
-        { glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f) }, // -Y
-        { glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // +Z
-        { glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f) }  // -Z
-    };
-    glm::mat4 viewProjs[6];
-    glm::vec3 probePos = getWorldPosition();
-    glm::mat4 cubeProj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, radius);
-    for (int i = 0; i < 6; ++i) {
-        viewProjs[i] = cubeProj * glm::lookAt(probePos, probePos + faces[i].dir, faces[i].up);
-    }
     VkViewport viewport = {
         .x = 0.0f,
         .y = 0.0f,

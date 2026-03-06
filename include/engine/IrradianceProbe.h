@@ -31,6 +31,8 @@ namespace engine {
         float radius;
         std::array<glm::vec3, 9> shCoeffs{};
 
+        glm::mat4 viewProjs[6];
+
         VkImage bakedCubemapImage = VK_NULL_HANDLE;
         VkImageView bakedCubemapView = VK_NULL_HANDLE;
         VkDeviceMemory bakedCubemapMemory = VK_NULL_HANDLE;

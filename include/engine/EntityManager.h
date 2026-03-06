@@ -192,6 +192,7 @@ namespace engine {
         void processIrradianceSH();
         bool needsIrradianceBaking() const { return irradianceBakingPending; }
         void setIrradianceBakingPending(bool pending) { irradianceBakingPending = pending; }
+        void markTexturesDirty() { textureLoadDirty = true; }
         VkBuffer getDummySkinningBuffer() const { return dummySkinningBuffer; }
 
         Renderer* getRenderer() const { return renderer; }
@@ -218,6 +219,7 @@ namespace engine {
         std::vector<std::pair<std::string, Entity*>> pendingAdditions;
         SpatialGrid spatialGrid{10.0f};
         bool spatialGridDirty = true;
+        bool textureLoadDirty = false;
         bool irradianceBakingPending = false;
 
         std::vector<VkBuffer> lightsBuffers;

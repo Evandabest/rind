@@ -87,10 +87,12 @@ void engine::Model::loadFromFile() {
                 joint.localTranslation = translation;
                 joint.localRotation = rotation;
                 joint.localScale = scale;
-                glm::mat4 T = glm::translate(glm::mat4(1.0f), translation);
-                glm::mat4 R = glm::mat4_cast(rotation);
-                glm::mat4 S = glm::scale(glm::mat4(1.0f), scale);
-                joint.localTransform = T * R * S;
+                glm::mat4& localTransform = joint.localTransform;
+                localTransform = glm::mat4_cast(rotation);
+                localTransform[0] *= scale.x;
+                localTransform[1] *= scale.y;
+                localTransform[2] *= scale.z;
+                localTransform[3] = glm::vec4(translation, 1.0f);
             } else if (auto* mat = std::get_if<fastgltf::math::fmat4x4>(&node.transform)) {
                 std::memcpy(&joint.localTransform, mat, sizeof(glm::mat4));
                 glm::vec3 skew;
@@ -456,11 +458,11 @@ engine::ModelManager::~ModelManager() {
 }
 
 void engine::ModelManager::init() {
-    std::function<void(const std::string& directory, std::string parentPath)> scanAndLoadModels = [&](const std::string& directory, std::string parentPath) {
+    auto scanAndLoadModels = [&](auto& self, const std::string& directory, std::string parentPath) -> void{
         std::vector<std::string> modelFiles = engine::scanDirectory(directory);
         for (const auto& filePath : modelFiles) {
             if (std::filesystem::is_directory(filePath)) {
-                scanAndLoadModels(filePath, parentPath + std::filesystem::path(filePath).filename().string() + "_");
+                self(self, filePath, parentPath + std::filesystem::path(filePath).filename().string() + "_");
                 continue;
             }
             if (!std::filesystem::is_regular_file(filePath)) {
@@ -478,5 +480,5 @@ void engine::ModelManager::init() {
             models[modelName] = model;
         }
     };
-    scanAndLoadModels(modelDirectory, "");
+    scanAndLoadModels(scanAndLoadModels, modelDirectory, "");
 }

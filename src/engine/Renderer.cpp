@@ -304,16 +304,16 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
     auto& renderGraph = shaderManager->getRenderGraph();
     const size_t nodeCount = renderGraph.size();
     const auto& roots = entityManager->getRootEntities();
-    std::function<bool(const std::vector<Entity*>&)> hasRenderable3D = [&](const std::vector<Entity*>& nodes) -> bool {
-        for (Entity* e : nodes) {
+    auto hasRenderable3D = [&](auto& self, const std::vector<Entity*>& nodes) -> bool {
+        for (const Entity* e : nodes) {
             const std::string& shaderName = e->getShader();
             const bool isGBufferShader = shaderName.empty() || shaderName == "gbuffer";
             if (e->getModel() && isGBufferShader) return true;
-            if (hasRenderable3D(e->getChildren())) return true;
+            if (self(self, e->getChildren())) return true;
         }
         return false;
     };
-    const bool has3DContent = hasRenderable3D(roots);
+    const bool has3DContent = hasRenderable3D(hasRenderable3D, roots);
     bool gbufferRendered = false;
 
     if (!paused) {
@@ -715,12 +715,10 @@ void engine::Renderer::draw2DPass(VkCommandBuffer commandBuffer, RenderNode& nod
         if (type == std::type_index(typeid(LightingPC))) {
             Camera* camera = entityManager->getCamera();
             if (camera) {
-                glm::mat4 invView = glm::inverse(camera->getViewMatrix());
-                glm::mat4 invProj = glm::inverse(camera->getProjectionMatrix());
                 uint32_t shadowSamples = pow(2, 2 + static_cast<int>(settings->shadowQuality));
                 LightingPC pc = {
-                    .invView = invView,
-                    .invProj = invProj,
+                    .invView = camera->getInvViewMatrix(),
+                    .invProj = camera->getInvProjectionMatrix(),
                     .camPos = camera->getWorldPosition(),
                     .shadowSamples = shadowSamples
                 };
@@ -736,13 +734,11 @@ void engine::Renderer::draw2DPass(VkCommandBuffer commandBuffer, RenderNode& nod
         } else if (type == std::type_index(typeid(SSRPC))) {
             Camera* camera = entityManager->getCamera();
             if (camera) {
-                glm::mat4 invView = glm::inverse(camera->getViewMatrix());
-                glm::mat4 invProj = glm::inverse(camera->getProjectionMatrix());
                 SSRPC pc = {
                     .view = camera->getViewMatrix(),
                     .proj = camera->getProjectionMatrix(),
-                    .invView = invView,
-                    .invProj = invProj
+                    .invView = camera->getInvViewMatrix(),
+                    .invProj = camera->getInvProjectionMatrix()
                 };
                 vkCmdPushConstants(
                     commandBuffer,

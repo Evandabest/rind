@@ -355,7 +355,7 @@ void engine::ParticleManager::renderParticles(VkCommandBuffer commandBuffer, uin
     if (!camera) return;
     VkExtent2D extent = renderer->getSwapChainExtent();
     ParticlePC pushConstants = {
-        .viewProj = camera->getProjectionMatrix() * camera->getViewMatrix(),
+        .viewProj = camera->getViewProjectionMatrix(),
         .screenSize = glm::vec2(static_cast<float>(extent.width), static_cast<float>(extent.height)),
         .particleSize = 0.03f,
         .trailWidth = 0.03f,

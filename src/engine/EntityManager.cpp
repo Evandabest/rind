@@ -54,7 +54,8 @@ engine::Model* engine::Entity::getModel() const {
 
 void engine::Entity::updateWorldTransform() {
     glm::mat4 transform(1.0f);
-    std::vector<Entity*> hierarchy;
+    static thread_local std::vector<Entity*> hierarchy;
+    hierarchy.clear();
     for (Entity* current = this; current != nullptr; current = current->getParent()) {
         hierarchy.push_back(current);
     }
@@ -280,16 +281,9 @@ void engine::Entity::updateAnimation(float deltaTime) {
         const engine::Model::AnimationSampler& sampler = clip->samplers[channel.samplerIndex];
         if (sampler.inputTimes.empty()) continue;
         float t = animState.currentTime;
-        size_t keyIndex = 0;
-        for (size_t i = 0; i < sampler.inputTimes.size() - 1; ++i) {
-            if (t >= sampler.inputTimes[i] && t < sampler.inputTimes[i + 1]) {
-                keyIndex = i;
-                break;
-            }
-            if (i == sampler.inputTimes.size() - 2) {
-                keyIndex = i;
-            }
-        }
+        auto it = std::lower_bound(sampler.inputTimes.begin(), sampler.inputTimes.end(), t);
+        if (it != sampler.inputTimes.begin()) --it;
+        size_t keyIndex = std::distance(sampler.inputTimes.begin(), it);
         float t0 = sampler.inputTimes[keyIndex];
         float t1 = sampler.inputTimes[std::min(keyIndex + 1, sampler.inputTimes.size() - 1)];
         float factor = (t1 > t0) ? glm::clamp((t - t0) / (t1 - t0), 0.0f, 1.0f) : 0.0f;
@@ -335,10 +329,11 @@ void engine::Entity::updateAnimation(float deltaTime) {
     }
     globalTransforms.resize(skeleton.size(), glm::mat4(1.0f));
     for (size_t i = 0; i < skeleton.size(); ++i) {
-        glm::mat4 T = glm::translate(glm::mat4(1.0f), localTranslations[i]);
-        glm::mat4 R = glm::mat4_cast(localRotations[i]);
-        glm::mat4 S = glm::scale(glm::mat4(1.0f), localScales[i]);
-        glm::mat4 localTransform = T * R * S;
+        glm::mat4 localTransform = glm::mat4_cast(localRotations[i]);
+        localTransform[0] *= localScales[i].x;
+        localTransform[1] *= localScales[i].y;
+        localTransform[2] *= localScales[i].z;
+        localTransform[3] = glm::vec4(localTranslations[i], 1.0f);
         int parentIdx = skeleton[i].parentIndex;
         if (parentIdx >= 0 && parentIdx < static_cast<int>(i)) {
             globalTransforms[i] = globalTransforms[parentIdx] * localTransform;
@@ -427,6 +422,9 @@ void engine::EntityManager::addEntity(const std::string& name, Entity* entity) {
 
 void engine::EntityManager::processPendingAdditions() {
     bool resetShadows = false;
+    if (!pendingAdditions.empty()) {
+        textureLoadDirty = true;
+    }
     for (const auto& [name, entity] : pendingAdditions) {
         entities[name] = entity;
         if (entities[name]->getIsMovable()) {
@@ -476,7 +474,14 @@ void engine::EntityManager::unregisterEntity(const std::string& name) {
             removeRootEntry(entity);
         }
         if (Light* light = dynamic_cast<Light*>(entity)) {
-            lights.erase(std::remove(lights.begin(), lights.end(), light), lights.end());
+            auto lightIt = std::find(lights.begin(), lights.end(), light);
+            if (lightIt != lights.end()) {
+                uint32_t removedIdx = std::distance(lights.begin(), lightIt);
+                lights.erase(lightIt);
+                for (uint32_t i = removedIdx; i < lights.size(); ++i) {
+                    lights[i]->updateLightIdx(i);
+                }
+            }
         }
         Camera* currentCamera = getCamera();
         if (currentCamera && currentCamera->getName() == entity->getName()) {
@@ -714,14 +719,14 @@ void engine::EntityManager::processIrradianceSH() {
 
 void engine::EntityManager::updateAll(float deltaTime) {
     if (spatialGridDirty) {
-        std::function<void(Entity*)> updateTransforms = [&](Entity* entity) {
+        auto updateTransforms = [&](auto& self, Entity* entity) -> void {
             entity->updateWorldTransform();
             for (Entity* child : entity->getChildren()) {
-                updateTransforms(child);
+                self(self, child);
             }
         };
         for (Entity* rootEntity : rootEntities) {
-            updateTransforms(rootEntity);
+            updateTransforms(updateTransforms, rootEntity);
         }
         rebuildSpatialGrid();
         spatialGridDirty = false;
@@ -729,19 +734,22 @@ void engine::EntityManager::updateAll(float deltaTime) {
         updateDynamicColliders();
     }
     
-    std::function<void(Entity*)> traverse = [&](Entity* entity) {
+    auto traverse = [&](auto& self, Entity* entity) -> void {
         entity->updateWorldTransform();
         entity->update(deltaTime);
         entity->updateAnimation(deltaTime);
         for (Entity* child : entity->getChildren()) {
-            traverse(child);
+            self(self, child);
         }
     };
     std::vector<Entity*> rootsCopy = rootEntities;
     for (Entity* rootEntity : rootsCopy) {
-        traverse(rootEntity);
+        traverse(traverse, rootEntity);
     }
-    loadTextures();
+    if (textureLoadDirty) {
+        loadTextures();
+        textureLoadDirty = false;
+    }
 }
 
 void engine::EntityManager::processPendingDeletions() {
@@ -781,7 +789,7 @@ void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, Render
         memcpy(entity->getUniformBuffersMapped()[bufferIndex], jointMatrices.data(), jointMatrices.size() * sizeof(glm::mat4));
     };
 
-    std::function<void(Entity*)> drawEntity = [&](Entity* entity) {
+    auto drawEntity = [&](auto& self, Entity* entity) -> void {
         ShaderManager* shaderManager = renderer->getShaderManager();
         Model* model = entity->getModel();
         GraphicsShader* shader = shaderManager->getGraphicsShader(entity->getShader());
@@ -817,8 +825,8 @@ void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, Render
             } else if (type == std::type_index(typeid(LightingPC))) {
                 if (camera) {
                     LightingPC pc = {
-                        .invView = glm::inverse(camera->getViewMatrix()),
-                        .invProj = glm::inverse(camera->getProjectionMatrix()),
+                        .invView = camera->getInvViewMatrix(),
+                        .invProj = camera->getInvProjectionMatrix(),
                         .camPos = camera->getWorldPosition()
                     };
                     vkCmdPushConstants(commandBuffer, shader->pipelineLayout, shader->config.pushConstantRange.stageFlags, 0, sizeof(LightingPC), &pc);
@@ -855,10 +863,10 @@ void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, Render
             vkCmdDrawIndexed(commandBuffer, model->getIndexCount(), 1, 0, 0, 0);
         }
         for (Entity* child : entity->getChildren()) {
-            drawEntity(child);
+            self(self, child);
         }
     };
     for (Entity* entity : rootEntities) {
-        drawEntity(entity);
+        drawEntity(drawEntity, entity);
     }
 }

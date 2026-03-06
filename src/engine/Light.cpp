@@ -18,13 +18,7 @@ engine::PointLight engine::Light::getPointLightData() {
     glm::vec3 worldPos = getWorldPosition();
     uint32_t shadowIdx = 0xFFFFFFFF;
     if (hasShadowMap) {
-        auto& lights = getEntityManager()->getLights();
-        for (uint32_t i = 0; i < lights.size(); ++i) {
-            if (lights[i] == this) {
-                shadowIdx = i;
-                break;
-            }
-        }
+        shadowIdx = lightIdx;
     }
     PointLight pl = {
         .positionRadius = glm::vec4(worldPos, radius),
@@ -141,20 +135,6 @@ void engine::Light::bakeShadowMap(Renderer* renderer, VkCommandBuffer commandBuf
     );
     
     glm::vec3 lightPos = getWorldPosition();
-    glm::mat4 shadowProj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, radius);
-    struct CubeFace {
-        glm::vec3 dir;
-        glm::vec3 up;
-    };
-    CubeFace faces[6] = {
-        { glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // +X
-        { glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // -X
-        { glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f) }, // +Y
-        { glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f) }, // -Y
-        { glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // +Z
-        { glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f) }  // -Z
-    };
-    glm::mat4 viewProjs[6];
     for (int i = 0; i < 6; ++i) {
         viewProjs[i] = shadowProj * glm::lookAt(lightPos, lightPos + faces[i].dir, faces[i].up);
     }
@@ -175,7 +155,7 @@ void engine::Light::bakeShadowMap(Renderer* renderer, VkCommandBuffer commandBuf
     };
     vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-    std::function<void(Entity*, glm::mat4&)> drawStaticEntity = [&](Entity* entity, glm::mat4& viewProj) {
+    auto drawStaticEntity = [&](auto& self, Entity* entity, glm::mat4& viewProj) -> void {
         if (!entity->getIsMovable()
          && entity->getModel()
          && (entity->getShader() == "gbuffer" || entity->getShader() == "shadow")
@@ -201,7 +181,7 @@ void engine::Light::bakeShadowMap(Renderer* renderer, VkCommandBuffer commandBuf
             vkCmdDrawIndexed(commandBuffer, model->getIndexCount(), 1, 0, 0, 0);
         }
         for (Entity* child : entity->getChildren()) {
-            drawStaticEntity(child, viewProj);
+            self(self, child, viewProj);
         }
     };
     
@@ -227,7 +207,7 @@ void engine::Light::bakeShadowMap(Renderer* renderer, VkCommandBuffer commandBuf
         };
         renderer->getFpCmdBeginRendering()(commandBuffer, &renderInfo);
         for (Entity* entity : rootEntities) {
-            drawStaticEntity(entity, viewProjs[face]);
+            drawStaticEntity(drawStaticEntity, entity, viewProjs[face]);
         }
         renderer->getFpCmdEndRendering()(commandBuffer);
     }
@@ -320,23 +300,6 @@ void engine::Light::renderShadowMap(Renderer* renderer, VkCommandBuffer commandB
         6
     );
     glm::vec3 lightPos = getWorldPosition();
-    glm::mat4 shadowProj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, radius);
-    struct CubeFace {
-        glm::vec3 dir;
-        glm::vec3 up;
-    };
-    CubeFace faces[6] = {
-        { glm::vec3( 1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // +X
-        { glm::vec3(-1.0f,  0.0f,  0.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // -X
-        { glm::vec3( 0.0f,  1.0f,  0.0f), glm::vec3(0.0f,  0.0f,  1.0f) }, // +Y
-        { glm::vec3( 0.0f, -1.0f,  0.0f), glm::vec3(0.0f,  0.0f, -1.0f) }, // -Y
-        { glm::vec3( 0.0f,  0.0f,  1.0f), glm::vec3(0.0f, -1.0f,  0.0f) }, // +Z
-        { glm::vec3( 0.0f,  0.0f, -1.0f), glm::vec3(0.0f, -1.0f,  0.0f) }  // -Z
-    };
-    glm::mat4 viewProjs[6];
-    for (int i = 0; i < 6; ++i) {
-        viewProjs[i] = shadowProj * glm::lookAt(lightPos, lightPos + faces[i].dir, faces[i].up);
-    }
     std::vector<Entity*>& movableEntities = renderer->getEntityManager()->getMovableEntities();
     if (!movableEntities.empty()) {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipeline);
@@ -354,7 +317,7 @@ void engine::Light::renderShadowMap(Renderer* renderer, VkCommandBuffer commandB
             .extent = {shadowMapSize, shadowMapSize}
         };
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-        std::function<void(Entity*, glm::mat4&)> drawMovableEntity = [&](Entity* entity, glm::mat4& viewProj) {
+        auto drawMovableEntity = [&](auto& self, Entity* entity, glm::mat4& viewProj) -> void {
             if (entity->getModel() 
              && (entity->getShader() == "gbuffer" || entity->getShader() == "shadow")
              && entity->getCastShadow()) {
@@ -406,7 +369,7 @@ void engine::Light::renderShadowMap(Renderer* renderer, VkCommandBuffer commandB
                 vkCmdDrawIndexed(commandBuffer, model->getIndexCount(), 1, 0, 0, 0);
             }
             for (Entity* child : entity->getChildren()) {
-                drawMovableEntity(child, viewProj);
+                self(self, child, viewProj);
             }
         };
         for (int face = 0; face < 6; ++face) {
@@ -431,7 +394,7 @@ void engine::Light::renderShadowMap(Renderer* renderer, VkCommandBuffer commandB
             };
             renderer->getFpCmdBeginRendering()(commandBuffer, &renderInfo);
             for (Entity* entity : movableEntities) {
-                drawMovableEntity(entity, viewProjs[face]);
+                drawMovableEntity(drawMovableEntity, entity, viewProjs[face]);
             }
             renderer->getFpCmdEndRendering()(commandBuffer);
         }

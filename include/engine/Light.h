@@ -8,8 +8,9 @@ namespace engine {
     class Light : public Entity {
     public:
         Light(EntityManager* entityManager, const std::string& name, glm::mat4 transform, glm::vec3 color, float intensity, float radius, bool isMovable = false)
-            : Entity(entityManager, name, "", transform, {}, isMovable), color(color), intensity(intensity), radius(radius) {
+            : Entity(entityManager, name, "", transform, {}, isMovable), color(color), intensity(intensity), radius(radius), shadowProj(glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, radius)) {
                 entityManager->addLight(this);
+                lightIdx = entityManager->getLights().size() - 1;
                 createShadowMaps(entityManager->getRenderer());
             }
         ~Light();
@@ -21,7 +22,12 @@ namespace engine {
         void setIntensity(float intensity) { this->intensity = intensity; }
 
         float getRadius() const { return radius; }
-        void setRadius(float radius) { this->radius = radius; }
+        void setRadius(float radius) {
+            this->radius = radius;
+            shadowProj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, radius);
+        }
+
+        void updateLightIdx(uint32_t newIdx) { lightIdx = newIdx; }
 
         uint32_t getShadowMapSize() const { return shadowMapSize; }
 
@@ -37,7 +43,11 @@ namespace engine {
         glm::vec3 color;
         float intensity;
         float radius;
+        glm::mat4 shadowProj;
         uint32_t shadowMapSize = 2048;
+
+        glm::mat4 viewProjs[6];
+        uint32_t lightIdx = 0xFFFFFFFF; // idx in EntityManager's light list
 
         // dynamic shadow map, sent to shader
         VkImage shadowDepthImage = VK_NULL_HANDLE;
