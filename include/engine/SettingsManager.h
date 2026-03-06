@@ -19,7 +19,7 @@ namespace engine {
             uint32_t aoMode = 2; // 0 = disabled, 1 = ssao, 2 = gtao
             uint32_t aaMode = 1; // 0 = none, 1 = FXAA, 2 = SMAA
             float fpsLimit = 0.0f;
-            float shadowQuality = 2.0f; // 0=512 4 samples, 1=1024 8 samples, 2=2048 16 samples, 3=2048 32 samples
+            float shadowQuality = 2.0f; // 0=512 2 samples, 1=1024 4 samples, 2=2048 8 samples, 3=2048 16 samples
             float masterVolume = 1.0f;
             bool ssrEnabled = true;
             bool showFPS = false;

@@ -23,30 +23,7 @@ struct PushConstants {
 };
 [[vk::push_constant]] PushConstants pc;
 
-groupshared float3 sharedSH[9][64];
-
-float shBasis(float3 n, int index) {
-    float x = n.z, y = n.x, z = n.y;
-    
-    const float k01 = 0.282095f;
-    const float k02 = 0.488603f;
-    const float k03 = 1.092548f;
-    const float k04 = 0.315392f;
-    const float k05 = 0.546274f;
-    
-    switch (index) {
-        case 0: return k01;
-        case 1: return -k02 * y;
-        case 2: return k02 * z;
-        case 3: return -k02 * x;
-        case 4: return k03 * x * y;
-        case 5: return -k03 * y * z;
-        case 6: return k04 * (3.0f * z * z - 1.0f);
-        case 7: return -k03 * x * z;
-        case 8: return k05 * (x * x - y * y);
-        default: return 0.0f;
-    }
-}
+groupshared float3 sharedSH[64][9];
 
 float3 cubemapTexelToDirection(uint face, float u, float v) {
     float3 dir;
@@ -87,7 +64,7 @@ void main(uint3 globalID : SV_DispatchThreadID,
     float invSize = 1.0f / float(cubemapSize);
     
     for (int i = 0; i < 9; ++i) {
-        sharedSH[i][localIndex] = float3(0, 0, 0);
+        sharedSH[localIndex][i] = float3(0, 0, 0);
     }
     GroupMemoryBarrierWithGroupSync();
     
@@ -102,9 +79,27 @@ void main(uint3 globalID : SV_DispatchThreadID,
         if (!any(isnan(color.rgb))) {
             float solidAngle = texelSolidAngle(u, v, invSize);
             
+            float x = dir.z, y = dir.x, z = dir.y;
+    
+            const float k01 = 0.282095f;
+            const float k02 = 0.488603f;
+            const float k03 = 1.092548f;
+            const float k04 = 0.315392f;
+            const float k05 = 0.546274f;
+
+            float basis[9] = {
+                k01,
+                -k02 * y,
+                k02 * z,
+                -k02 * x,
+                k03 * x * y,
+                -k03 * y * z,
+                k04 * (3.0f * z * z - 1.0f),
+                -k03 * x * z,
+                k05 * (x * x - y * y)
+            };
             for (int i = 0; i < 9; ++i) {
-                float basis = shBasis(dir, i);
-                sharedSH[i][localIndex] = color.rgb * basis * solidAngle;
+                sharedSH[localIndex][i] = color.rgb * basis[i] * solidAngle;
             }
         }
     }
@@ -114,7 +109,7 @@ void main(uint3 globalID : SV_DispatchThreadID,
     for (uint stride = 32; stride > 0; stride >>= 1) {
         if (localIndex < stride) {
             for (int i = 0; i < 9; ++i) {
-                sharedSH[i][localIndex] += sharedSH[i][localIndex + stride];
+                sharedSH[localIndex][i] += sharedSH[localIndex + stride][i];
             }
         }
         GroupMemoryBarrierWithGroupSync();
@@ -126,7 +121,7 @@ void main(uint3 globalID : SV_DispatchThreadID,
         uint workgroupIndex = face * numGroupsX * numGroupsY + groupID.y * numGroupsX + groupID.x;
         
         for (int i = 0; i < 9; ++i) {
-            outputSH[workgroupIndex].coeffs[i] = float4(sharedSH[i][0], 0.0f);
+            outputSH[workgroupIndex].coeffs[i] = float4(sharedSH[0][i], 0.0f);
         }
     }
 }

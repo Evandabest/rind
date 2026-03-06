@@ -83,8 +83,8 @@ float computeSSAO(float2 uv, float3 centerPos, float3 centerNormal) {
         
         float depthDiscontinuity = expectedDepth - actualDepth;
         float edgeFade = 1.0;
+        float3 actualViewPos = reconstructPosition(sampleUV, actualDepth);
         if (depthDiscontinuity > 0.002) {
-            float3 actualViewPos = reconstructPosition(sampleUV, actualDepth);
             float distToActual = length(actualViewPos - centerPos);
             edgeFade = saturate(1.0 - (distToActual - RADIUS) / RADIUS);
             if (distToActual > RADIUS * 1.5) {
@@ -92,8 +92,7 @@ float computeSSAO(float2 uv, float3 centerPos, float3 centerNormal) {
             }
         }
         
-        float3 sampleViewPos = reconstructPosition(sampleUV, actualDepth);
-        float3 v = sampleViewPos - centerPos;
+        float3 v = actualViewPos - centerPos;
         float dist = length(v);
         float rangeCheck = smoothstep(0.0, 1.0, RADIUS / (dist + 1e-5));
         
@@ -149,8 +148,8 @@ float computeGTAO(float2 uv, float3 centerPos, float3 centerNormal) {
 
             float depthDiscontinuity = expectedDepth - actualDepth;
             float edgeFade = 1.0;
+            float3 actualViewPos = reconstructPosition(sampleUV, actualDepth);
             if (depthDiscontinuity > 0.002) {
-                float3 actualViewPos = reconstructPosition(sampleUV, actualDepth);
                 float distToActual = length(actualViewPos - centerPos);
                 edgeFade = saturate(1.0 - (distToActual - RADIUS) / RADIUS);
                 if (distToActual > RADIUS * 1.5) {
@@ -158,8 +157,7 @@ float computeGTAO(float2 uv, float3 centerPos, float3 centerNormal) {
                 }
             }
 
-            float3 sampleViewPos = reconstructPosition(sampleUV, actualDepth);
-            float3 v = sampleViewPos - centerPos;
+            float3 v = actualViewPos - centerPos;
             float dist = length(v);
             
             float rangeCheck = smoothstep(0.0, 1.0, RADIUS / (dist + 1e-5));

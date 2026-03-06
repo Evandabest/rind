@@ -60,8 +60,9 @@ bool rayMarch(float3 rayStart, float3 rayDir, float jitter, out float2 hitUV, ou
     float3 rayDirNorm = normalize(rayDir);
     currPos += rayDirNorm * stepSize * jitter;
     float3 prevPos = currPos;
+    float dist = 0.0;
     for (int i = 0; i < MAX_STEPS; i++) {
-        float dist = length(currPos - rayStart);
+        dist += stepSize;
         if (dist > MAX_DISTANCE) {
             return false;
         }

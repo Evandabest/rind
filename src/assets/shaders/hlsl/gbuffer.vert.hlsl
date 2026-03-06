@@ -72,8 +72,8 @@ VSOutput main(VSInput input) {
     }
     float4 skinnedPosition = mul(float4(input.inPosition, 1.0), skinMatrix);
     float4 worldPos = mul(skinnedPosition, pc.model);
-    float3x3 modelMatrix3 = (float3x3)pc.model;
-    float3x3 skinMatrix3 = (float3x3)skinMatrix;
+    float3x3 modelMatrix3 = (float3x3) pc.model;
+    float3x3 skinMatrix3 = (float3x3) skinMatrix;
     float3x3 combinedMatrix = mul(skinMatrix3, modelMatrix3);
     float3x3 normalMatrix = transpose(combinedMatrix);
     float3 T = normalize(mul(input.inTangent.xyz, combinedMatrix));

@@ -715,7 +715,7 @@ void engine::Renderer::draw2DPass(VkCommandBuffer commandBuffer, RenderNode& nod
         if (type == std::type_index(typeid(LightingPC))) {
             Camera* camera = entityManager->getCamera();
             if (camera) {
-                uint32_t shadowSamples = pow(2, 2 + static_cast<int>(settings->shadowQuality));
+                uint32_t shadowSamples = pow(2, 1 + static_cast<int>(settings->shadowQuality));
                 LightingPC pc = {
                     .invView = camera->getInvViewMatrix(),
                     .invProj = camera->getInvProjectionMatrix(),
