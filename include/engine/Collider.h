@@ -23,9 +23,9 @@ namespace engine {
             CollisionMTV mtv;
             glm::vec3 worldHitPoint{0.0f};
         };
-        Collider(EntityManager* entityManager, const std::string& name, glm::mat4 transform);
+        Collider(EntityManager* entityManager, const std::string& name, glm::mat4 transform, ColliderType type);
         virtual ~Collider();
-        virtual ColliderType getType() const = 0;
+        const ColliderType& getType() const { return type; }
         virtual AABB getWorldAABB() = 0;
         virtual bool intersectsMTV(Collider& other, CollisionMTV& out, const glm::mat4& deltaTransform = glm::mat4(1.0f)) = 0;
         glm::vec3 intersects(Collider& other, const glm::mat4 deltaTransform = glm::mat4(1.0f)) {
@@ -51,8 +51,10 @@ namespace engine {
         static void addAxisUnique(std::vector<glm::vec3>& axes, const glm::vec3& axis);
         static std::pair<float, float> projectVertsOntoAxis(const std::vector<glm::vec3>& verts, const glm::vec3& axis, const glm::vec3& offset = glm::vec3(0.0f)); // min, max
         static bool satMTV(const std::vector<glm::vec3>& vertsA, const std::vector<glm::vec3>& vertsB, const std::vector<glm::vec3>& edgesA, const std::vector<glm::vec3>& edgesB, const std::vector<glm::vec3>& axesA, const std::vector<glm::vec3>& axesB, CollisionMTV& out, const glm::vec3 centerDelta, const glm::vec3& offsetA = glm::vec3(0.0f), const glm::vec3& offsetB = glm::vec3(0.0f));
+    private:
         bool isTrigger = false;
         bool isDynamic = false;
+        ColliderType type;
     };
     class AABBCollider;
     class OBBCollider;
@@ -61,8 +63,7 @@ namespace engine {
     class AABBCollider : public Collider {
     public:
         AABBCollider(EntityManager* entityManager, const glm::mat4 transform, const std::string& parentName, const glm::vec3 halfSize = glm::vec3(0.5f))
-            : Collider(entityManager, "collision_" + parentName, transform), halfSize(halfSize) {}
-        ColliderType getType() const override { return ColliderType::AABB; }
+            : Collider(entityManager, "collision_" + parentName, transform, ColliderType::AABB), halfSize(halfSize) {}
         AABB getWorldAABB() override;
         bool intersectsMTV(Collider& other, CollisionMTV& out, const glm::mat4& deltaTransform = glm::mat4(1.0f)) override;
     private:
@@ -71,8 +72,7 @@ namespace engine {
     class OBBCollider : public Collider {
     public:
         OBBCollider(EntityManager* entityManager, const glm::mat4 transform, const std::string& parentName, const glm::vec3 halfSize = glm::vec3(0.5f))
-            : Collider(entityManager, "collision_" + parentName, transform), halfSize(halfSize) {}
-        ColliderType getType() const override { return ColliderType::OBB; }
+            : Collider(entityManager, "collision_" + parentName, transform, ColliderType::OBB), halfSize(halfSize) {}
         AABB getWorldAABB() override;
         bool intersectsMTV(Collider& other, CollisionMTV& out, const glm::mat4& deltaTransform = glm::mat4(1.0f)) override;
         glm::vec3 getHalfSize() const { return halfSize; }
@@ -94,9 +94,8 @@ namespace engine {
     class ConvexHullCollider : public Collider {
     public:
         ConvexHullCollider(EntityManager* entityManager, const glm::mat4 transform, const std::string& parentName)
-            : Collider(entityManager, "collision_" + parentName, transform) {}
+            : Collider(entityManager, "collision_" + parentName, transform, ColliderType::ConvexHull) {}
         
-        ColliderType getType() const override { return ColliderType::ConvexHull; }
         AABB getWorldAABB() override;
         bool intersectsMTV(Collider& other, CollisionMTV& out, const glm::mat4& deltaTransform = glm::mat4(1.0f)) override;
 

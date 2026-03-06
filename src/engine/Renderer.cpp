@@ -2558,7 +2558,8 @@ void engine::Renderer::processInput(GLFWwindow* window) {
         renderer->clicking = false;
     } else if (renderer->getHoveredObject() && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
         if (!renderer->clicking) {
-            if (ButtonObject* button = dynamic_cast<ButtonObject*>(renderer->getHoveredObject())) {
+            if (renderer->getHoveredObject()->getType() == UIType::Button) {
+                ButtonObject* button = static_cast<ButtonObject*>(renderer->getHoveredObject());
                 button->click();
                 renderer->clicking = true;
                 if (renderer->uiManager) {
@@ -2568,18 +2569,21 @@ void engine::Renderer::processInput(GLFWwindow* window) {
                     renderer->inputManager->processInput(window);
                 }
                 return;
-            } else if (CheckboxObject* toggle = dynamic_cast<CheckboxObject*>(renderer->getHoveredObject())) {
+            } else if (renderer->getHoveredObject()->getType() == UIType::Checkbox) {
+                CheckboxObject* toggle = static_cast<CheckboxObject*>(renderer->getHoveredObject());
                 toggle->toggle();
             }
         }
-        SliderObject* slider = dynamic_cast<SliderObject*>(renderer->getHoveredObject());
-        if (!slider && renderer->getHoveredObject()) {
-            slider = dynamic_cast<SliderObject*>(renderer->getHoveredObject()->getParent());
-        }
-        if (slider) {
+        if (renderer->getHoveredObject()->getType() == UIType::Slider) {
+            SliderObject* slider = static_cast<SliderObject*>(renderer->getHoveredObject());
             slider->setValue(slider->getSliderValueFromMouse(window));
+            renderer->clicking = true;
+        } else if (renderer->getHoveredObject()->getParent()->getType() == UIType::Slider) {
+            SliderObject* slider = static_cast<SliderObject*>(renderer->getHoveredObject()->getParent());
+            slider->setValue(slider->getSliderValueFromMouse(window));
+            renderer->clicking = true;
         }
-        renderer->clicking = true;
+        
     } else if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS
     && !renderer->inputManager->getCursorLocked() && !renderer->inputManager->getUIFocused()) {
         renderer->toggleLockCursor(true);

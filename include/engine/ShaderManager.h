@@ -132,13 +132,11 @@ namespace engine {
 };
 
 // add hash specialization for GraphicsShader to allow usage in unordered_set for RenderNode
-namespace std {
-    template <>
-    struct std::hash<engine::GraphicsShader> {
-    std::size_t operator()(const engine::GraphicsShader& shader) const {
-            return std::hash<std::string>()(shader.name);
-        }
-    };
+template <>
+struct std::hash<engine::GraphicsShader> {
+std::size_t operator()(const engine::GraphicsShader& shader) const {
+        return std::hash<std::string>()(shader.name);
+    }
 };
 
 namespace engine {

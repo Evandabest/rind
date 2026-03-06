@@ -20,6 +20,13 @@
 
 namespace engine {
     class UIManager;
+    enum class UIType {
+        Generic,
+        Button,
+        Checkbox,
+        Slider,
+        Text
+    };
     class UIObject;
     class TextObject;
 
@@ -50,15 +57,17 @@ namespace engine {
         const std::string& getFont() const { return font; }
         bool isEnabled() const { return enabled; }
         void setEnabled(bool enabled) { this->enabled = enabled; }
-        glm::vec4 getTint() const { return tint; }
-        Corner getAnchorCorner() const { return anchorCorner; }
+        const glm::vec4& getTint() const { return tint; }
+        const Corner& getAnchorCorner() const { return anchorCorner; }
         glm::vec2 getScale() const;
+        const UIType& getType() const { return type; }
         float getVerticalOffsetRatio() const { return verticalOffsetRatio; }
         void setVerticalOffsetRatio(float ratio) { verticalOffsetRatio = ratio; }
 
     private:
         UIManager* uiManager;
         std::string name;
+        UIType type = UIType::Text;
         glm::vec4 tint;
         std::string text;
         std::string font;
@@ -71,7 +80,7 @@ namespace engine {
 
     class UIObject {
     public:
-        UIObject(UIManager* uiManager, glm::mat4 transform, std::string name, glm::vec4 tint, std::string texture, Corner anchorCorner = Corner::Center, std::function<void()>* onHover = nullptr, std::function<void()>* onStopHover = nullptr);
+        UIObject(UIManager* uiManager, glm::mat4 transform, std::string name, glm::vec4 tint, std::string texture, Corner anchorCorner = Corner::Center, std::function<void()>* onHover = nullptr, std::function<void()>* onStopHover = nullptr, UIType type = UIType::Generic);
         virtual ~UIObject();
 
         const std::string& getName() const { return name; }
@@ -96,11 +105,12 @@ namespace engine {
 
         void setEnabled(bool enabled) { this->enabled = enabled; }
         bool isEnabled() const { return enabled; }
-        glm::vec4 getTint() const { return tint; }
+        const UIType& getType() const { return type; }
+        const glm::vec4& getTint() const { return tint; }
         void setTint(const glm::vec4& tint) { this->tint = tint; }
-        glm::vec4 getUVClip() const { return uvClip; }
+        const glm::vec4& getUVClip() const { return uvClip; }
         void setUVClip(const glm::vec4& uvClip) { this->uvClip = uvClip; }
-        Corner getAnchorCorner() const { return anchorCorner; }
+        const Corner& getAnchorCorner() const { return anchorCorner; }
         std::function<void()>* getOnHover() const { return onHover; }
         std::function<void()>* getOnStopHover() const { return onStopHover; }
         void setOnHover(std::function<void()>* onHover) {
@@ -121,6 +131,7 @@ namespace engine {
     private:
         UIManager* uiManager;
         std::string name;
+        UIType type = UIType::Generic;
         glm::vec4 tint;
         glm::vec4 uvClip = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
         glm::mat4 transform;
@@ -168,7 +179,7 @@ namespace engine {
     class SliderObject : public UIObject {
     public:
         SliderObject(UIManager* uiManager, glm::mat4 transform, std::string name, float minValue, float maxValue, float& boundValue, Corner anchorCorner = Corner::Center, std::string textSuffix = "", bool isInteger = false, float textMultiplier = 1.0f)
-            : UIObject(uiManager, transform, name, glm::vec4(1.0f), "ui_slider_background", anchorCorner), minValue(minValue), maxValue(maxValue), boundValue(boundValue), isInteger(isInteger), textSuffix(textSuffix), textMultiplier(textMultiplier) {
+            : UIObject(uiManager, transform, name, glm::vec4(1.0f), "ui_slider_background", anchorCorner, nullptr, nullptr, UIType::Slider), minValue(minValue), maxValue(maxValue), boundValue(boundValue), isInteger(isInteger), textSuffix(textSuffix), textMultiplier(textMultiplier) {
                 knobObject = new UIObject(
                     uiManager,
                     glm::scale(glm::mat4(1.0f), glm::vec3(0.04f, 0.04f, 1.0f)),

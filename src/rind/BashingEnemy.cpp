@@ -31,7 +31,9 @@ rind::BashingEnemy::BashingEnemy(engine::EntityManager* entityManager, rind::Pla
                 glm::radians(90.0f),
                 glm::vec3(0.0f, 1.0f, 0.0f)
             ),
-            gunMaterial
+            gunMaterial,
+            false,
+            EntityType::Model
         );
         addChild(enemyModel);
         engine::ModelManager* modelManager = entityManager->getRenderer()->getModelManager();
@@ -87,7 +89,7 @@ void rind::BashingEnemy::update(float deltaTime) {
                     audioManager->playSound3D("enemy_lose", getWorldPosition(), 0.5f, 0.2f);
                     break;
                 }
-                glm::mat4 t = getTransform();
+                const glm::mat4& t = getTransform();
                 glm::vec3 forward = -glm::vec3(t[2]);
                 forward.y = 0.0f;
                 forward = glm::length(forward) > 1e-6f ? glm::normalize(forward) : glm::vec3(0.0f, 0.0f, -1.0f);
@@ -259,10 +261,11 @@ void rind::BashingEnemy::hit() {
         true
     );
     if (!hits.empty()) {
-        engine::Collider::Collision collision = hits[0];
-        if (rind::Player* character = dynamic_cast<rind::Player*>(hits[0].other->getParent())) {
+        engine::Entity* other = hits[0].other->getParent();
+        if (other->getType() == engine::Entity::EntityType::Player) {
+            Player* player = static_cast<Player*>(other);
             audioManager->playSound3D("laser_enemy_impact", getWorldPosition(), 0.5f, 0.2f);
-            character->damage(20.0f);
+            player->damage(20.0f);
             lastShotTime = std::chrono::steady_clock::now();
         }
     }

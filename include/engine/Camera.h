@@ -12,7 +12,7 @@ namespace engine {
     class Camera : public Entity {
     public:
         Camera(EntityManager* entityManager, const std::string& name, glm::mat4 transform, float fovY, float nearPlane, float farPlane, bool isMovable = true)
-            : Entity(entityManager, name, "", transform, {}, isMovable),
+            : Entity(entityManager, name, "", transform, {}, isMovable, EntityType::Camera),
               fovY(fovY), nearPlane(nearPlane), farPlane(farPlane) {
                 entityManager->setCamera(this);
                 VkExtent2D swapChainExtent = entityManager->getRenderer()->getSwapChainExtent();

@@ -10,14 +10,15 @@
 #include <glm/gtc/quaternion.hpp>
 
 rind::Player::Player(engine::EntityManager* entityManager, engine::InputManager* inputManager, const std::string& name, glm::mat4 transform)
-    : engine::CharacterEntity(entityManager, name, "", transform, {}), inputManager(inputManager) {
+    : engine::CharacterEntity(entityManager, name, "", transform, {}, engine::Entity::EntityType::Player), inputManager(inputManager) {
         engine::Entity* head = new engine::Entity(
             entityManager,
             "playerHead",
             "",
             glm::mat4(1.0f),
             {},
-            true
+            true,
+            engine::Entity::EntityType::Empty
         );
         addChild(head);
         setHead(head);
@@ -26,7 +27,9 @@ rind::Player::Player(engine::EntityManager* entityManager, engine::InputManager*
             "camera",
             "",
             glm::mat4(1.0f),
-            {}
+            {},
+            false,
+            engine::Entity::EntityType::Empty
         );
         head->addChild(camHolder);
         camera = new engine::Camera(
@@ -58,7 +61,8 @@ rind::Player::Player(engine::EntityManager* entityManager, engine::InputManager*
                 glm::vec3(gunModelScale)
             ),
             gunMaterial,
-            true
+            true,
+            engine::Entity::EntityType::Model
         );
         gunModel->setModel(entityManager->getRenderer()->getModelManager()->getModel("lasergun"));
         gunModel->setCastShadow(false);
@@ -74,7 +78,8 @@ rind::Player::Player(engine::EntityManager* entityManager, engine::InputManager*
             "",
             glm::translate(glm::mat4(1.0f), gunEndLocalOffset),
             {},
-            false
+            false,
+            engine::Entity::EntityType::Empty
         );
         gunModel->addChild(gunEndPosition);
         engine::OBBCollider* box = new engine::OBBCollider(
@@ -100,7 +105,8 @@ rind::Player::Player(engine::EntityManager* entityManager, engine::InputManager*
                 glm::vec3(0.22f)
             ),
             gunMaterial,
-            true
+            true,
+            engine::Entity::EntityType::Model
         );
         playerModel->setCastShadow(false);
         playerModel->setModel(entityManager->getRenderer()->getModelManager()->getModel("robot-visible"));
@@ -112,7 +118,8 @@ rind::Player::Player(engine::EntityManager* entityManager, engine::InputManager*
             "shadow",
             glm::mat4(1.0f),
             {},
-            true
+            true,
+            engine::Entity::EntityType::Model
         );
         playerShadow->setModel(entityManager->getRenderer()->getModelManager()->getModel("robot"));
         playerModel->addChild(playerShadow);
@@ -696,7 +703,9 @@ void rind::Player::shoot() {
             0.35f,
             0.3f
         );
-        if (rind::Enemy* character = dynamic_cast<rind::Enemy*>(collision.other->getParent())) {
+        engine::Entity* other = collision.other->getParent();
+        if (other->getType() == engine::Entity::EntityType::Enemy) {
+            rind::Enemy* character = static_cast<rind::Enemy*>(other);
             character->damage(34.0f);
             if (character->getState() == EnemyState::Idle) {
                 character->rotateToPlayer();

@@ -1,8 +1,10 @@
 #include <engine/Collider.h>
 #include <engine/SpatialGrid.h>
+#include <algorithm>
+#include <atomic>
 
-engine::Collider::Collider(EntityManager* entityManager, const std::string& name, glm::mat4 transform)
-    : Entity(entityManager, name, "", transform, {}, false) {
+engine::Collider::Collider(EntityManager* entityManager, const std::string& name, glm::mat4 transform, ColliderType type)
+    : Entity(entityManager, name, "", transform, {}, false, EntityType::Collider), type(type) {
         entityManager->addCollider(this);
     }
 
@@ -14,16 +16,15 @@ engine::Collider::~Collider() {
 
 std::vector<engine::Collider::Collision> engine::Collider::raycast(EntityManager* entityManager, const glm::vec3& rayOrigin, const glm::vec3& rayDir, float maxDistance, Collider* ignoreCollider, bool returnFirstHit, float margin, bool getAny) {
     static thread_local std::vector<engine::Collider::Collision> results;
-    static thread_local std::vector<engine::Collider*> candidates;
     results.clear();
-    candidates.clear();
     glm::vec3 rayEnd = rayOrigin + rayDir * maxDistance;
-
+    
     AABB rayAABB = {
         .min = glm::min(rayOrigin, rayEnd) - glm::vec3(margin),
         .max = glm::max(rayOrigin, rayEnd) + glm::vec3(margin)
     };
     
+    static thread_local std::vector<engine::Collider*> candidates;
     entityManager->getSpatialGrid().query(rayAABB, candidates);
     
     for (Collider* collider : candidates) {
@@ -34,8 +35,7 @@ std::vector<engine::Collider::Collision> engine::Collider::raycast(EntityManager
         if (!aabbIntersects(rayAABB, aabb)) {
             continue;
         }
-        ColliderType type = collider->getType();
-        switch (type) {
+        switch (collider->getType()) {
             case ColliderType::AABB: {
                 AABBCollider* aabbCollider = static_cast<AABBCollider*>(collider);
                 glm::vec3 invDir = 1.0f / rayDir;
@@ -288,8 +288,9 @@ std::pair<float, float> engine::Collider::projectVertsOntoAxis(const std::vector
     }
     float min = glm::dot(verts[0] + offset, axis);
     float max = min;
+    float offsetProjection = glm::dot(offset, axis);
     for (const auto& vert : verts) {
-        float projection = glm::dot(vert + offset, axis);
+        float projection = glm::dot(vert, axis) + offsetProjection;
         min = glm::min(min, projection);
         max = glm::max(max, projection);
     }
@@ -474,7 +475,7 @@ void engine::ConvexHullCollider::buildConvexData(const std::vector<glm::vec3>& v
 }
 
 engine::AABB engine::AABBCollider::getWorldAABB() {
-    glm::mat4 transform = getWorldTransform();
+    const glm::mat4& transform = getWorldTransform();
     auto corners = Collider::buildOBBCorners(transform, halfSize);
     return Collider::aabbFromCorners(corners);
 }
@@ -489,7 +490,7 @@ void engine::OBBCollider::ensureCached() {
     if (isCached && currentGen == lastTransformGeneration) {
         return;
     }
-    glm::mat4 currentTransform = getWorldTransform();
+    const glm::mat4& currentTransform = getWorldTransform();
     cornersCache = Collider::buildOBBCorners(currentTransform, halfSize);
     axesCache = {
         Collider::normalizeOrZero(glm::vec3(currentTransform[0])),
@@ -507,13 +508,13 @@ engine::AABB engine::ConvexHullCollider::getWorldAABB() {
         glm::vec3 p = glm::vec3(const_cast<ConvexHullCollider*>(this)->getWorldTransform()[3]);
         return AABB{p - glm::vec3(0.001f), p + glm::vec3(0.001f)};
     }
+#if defined(USE_OPENMP)
     float minX = std::numeric_limits<float>::max();
     float minY = std::numeric_limits<float>::max();
     float minZ = std::numeric_limits<float>::max();
     float maxX = std::numeric_limits<float>::lowest();
     float maxY = std::numeric_limits<float>::lowest();
     float maxZ = std::numeric_limits<float>::lowest();
-#if defined(USE_OPENMP)
     #pragma omp parallel for reduction(min:minX, minY, minZ) reduction(max:maxX, maxY, maxZ)
     for (int i = 0; i < static_cast<int>(worldVerts.size()); ++i) {
         const glm::vec3& w = worldVerts[static_cast<size_t>(i)];
@@ -524,17 +525,16 @@ engine::AABB engine::ConvexHullCollider::getWorldAABB() {
         if (w.y > maxY) maxY = w.y;
         if (w.z > maxZ) maxZ = w.z;
     }
-#else
-    for (const auto& w : worldVerts) {
-        if (w.x < minX) minX = w.x;
-        if (w.y < minY) minY = w.y;
-        if (w.z < minZ) minZ = w.z;
-        if (w.x > maxX) maxX = w.x;
-        if (w.y > maxY) maxY = w.y;
-        if (w.z > maxZ) maxZ = w.z;
-    }
-#endif
     return AABB{ glm::vec3(minX, minY, minZ), glm::vec3(maxX, maxY, maxZ) };
+#else
+    glm::vec3 minW = glm::vec3(std::numeric_limits<float>::max());
+    glm::vec3 maxW = glm::vec3(std::numeric_limits<float>::lowest());
+    for (const auto& w : worldVerts) {
+        minW = glm::min(minW, w);
+        maxW = glm::max(maxW, w);
+    }
+    return AABB{ minW, maxW };
+#endif
 }
 
 void engine::ConvexHullCollider::setVertsFromModel(std::vector<glm::vec3>&& vertices, std::vector<uint32_t>&& indices, const glm::mat4& transform) {
@@ -598,16 +598,21 @@ bool engine::AABBCollider::intersectsMTV(Collider& other, CollisionMTV& out, con
     if (!Collider::aabbIntersects(thisAABB, otherAABB, 0.001f)) {
         return false;
     }
-    std::vector<glm::vec3> vertsA(cornersA.begin(), cornersA.end());
+    static thread_local std::vector<glm::vec3> vertsA;
+    vertsA.assign(cornersA.begin(), cornersA.end());
     std::vector<glm::vec3> faceAxesA = {
         Collider::normalizeOrZero(glm::vec3(transform[0])),
         Collider::normalizeOrZero(glm::vec3(transform[1])),
         Collider::normalizeOrZero(glm::vec3(transform[2]))
     };
-    std::vector<glm::vec3> edgeAxesA = faceAxesA;
+    static thread_local std::vector<glm::vec3> edgeAxesA;
+    edgeAxesA = faceAxesA;
     glm::vec3 centerA = glm::vec3(transform[3]);
     glm::mat4 otherTransform = other.getWorldTransform();
-    std::vector<glm::vec3> vertsB; std::vector<glm::vec3> faceAxesB; std::vector<glm::vec3> edgeAxesB; glm::vec3 centerB(0.0f);
+    static thread_local std::vector<glm::vec3> vertsB;
+    static thread_local std::vector<glm::vec3> faceAxesB;
+    static thread_local std::vector<glm::vec3> edgeAxesB;
+    glm::vec3 centerB(0.0f);
     switch (other.getType()) {
         case ColliderType::OBB: {
             auto cornersB = Collider::buildOBBCorners(otherTransform, static_cast<const engine::OBBCollider&>(other).getHalfSize());
@@ -676,12 +681,18 @@ bool engine::OBBCollider::intersectsMTV(Collider& other, CollisionMTV& out, cons
         return false;
     }
     
-    std::vector<glm::vec3> vertsA(cornersA.begin(), cornersA.end());
-    std::vector<glm::vec3> faceAxesA(faceAxesALocal.begin(), faceAxesALocal.end());
-    std::vector<glm::vec3> edgeAxesA = faceAxesA;
+    static thread_local std::vector<glm::vec3> vertsA;
+    vertsA.assign(cornersA.begin(), cornersA.end());
+    static thread_local std::vector<glm::vec3> faceAxesA;
+    faceAxesA.assign(faceAxesALocal.begin(), faceAxesALocal.end());
+    static thread_local std::vector<glm::vec3> edgeAxesA;
+    edgeAxesA = faceAxesA;
     
-    std::vector<glm::vec3> vertsB; std::vector<glm::vec3> faceAxesB; std::vector<glm::vec3> edgeAxesB; glm::vec3 centerB(0.0f);
-    
+    static thread_local std::vector<glm::vec3> vertsB;
+    static thread_local std::vector<glm::vec3> faceAxesB;
+    static thread_local std::vector<glm::vec3> edgeAxesB;
+    glm::vec3 centerB(0.0f);
+
     switch (other.getType()) {
         case ColliderType::AABB: {
             auto corners = getCornersFromAABB(otherAABB);
@@ -741,7 +752,10 @@ bool engine::ConvexHullCollider::intersectsMTV(Collider& other, CollisionMTV& ou
     const std::vector<glm::vec3>& vertsA = worldVerts;
     const std::vector<glm::vec3>& faceAxesA = faceAxesCached;
     const std::vector<glm::vec3>& edgeAxesA = edgeAxesCached;
-    std::vector<glm::vec3> vertsB; std::vector<glm::vec3> faceAxesB; std::vector<glm::vec3> edgeAxesB; glm::vec3 centerB(0.0f);
+    static thread_local std::vector<glm::vec3> vertsB;
+    static thread_local std::vector<glm::vec3> faceAxesB;
+    static thread_local std::vector<glm::vec3> edgeAxesB;
+    glm::vec3 centerB(0.0f);
     glm::vec3 centerA = worldCenter + glm::vec3(deltaTransform[3]);
     glm::mat4 otherTransform = other.getWorldTransform();
     switch (other.getType()) {
@@ -796,7 +810,7 @@ void engine::ConvexHullCollider::ensureCached() {
     if (isCached && currentGen == lastTransformGeneration) {
         return;
     }
-    glm::mat4 worldTransform = getWorldTransform();
+    const glm::mat4& worldTransform = getWorldTransform();
     buildConvexData(localVerts, localTris, worldTransform, worldVerts, edgeAxesCached, faceAxesCached, worldCenter);
     lastTransformGeneration = currentGen;
     isCached = true;

@@ -7,7 +7,7 @@
 #define PI 3.14159265358979323846f
 
 rind::Enemy::Enemy(engine::EntityManager* entityManager, rind::Player* player, const std::string& name, glm::mat4 transform, uint32_t& enemyCount)
-    : engine::CharacterEntity(entityManager, name, "", transform, {}), targetPlayer(player), enemyCount(enemyCount) {
+    : engine::CharacterEntity(entityManager, name, "", transform, {}, engine::Entity::EntityType::Enemy), targetPlayer(player), enemyCount(enemyCount) {
         if (player == nullptr) {
             throw std::runtime_error("Enemy spawned without player reference");
         }
@@ -69,11 +69,14 @@ void rind::Enemy::shoot() {
             0.3f,
             0.7f
         );
-        if (rind::Player* character = dynamic_cast<rind::Player*>(collision.other->getParent())) {
-            character->damage(5.0f);
+        engine::Entity* other = collision.other->getParent();
+        if (other->getType() == engine::Entity::EntityType::Player) {
+            Player* player = static_cast<Player*>(other);
+            player->damage(5.0f);
             audioManager->playSound3D("laser_enemy_impact", collision.worldHitPoint, 0.5f, 0.2f);
-        } else if (rind::Enemy* character = dynamic_cast<rind::Enemy*>(collision.other->getParent())) {
-            character->damage(5.0f);
+        } else if (other->getType() == engine::Entity::EntityType::Enemy) {
+            rind::Enemy* enemy = static_cast<rind::Enemy*>(other);
+            enemy->damage(5.0f);
             audioManager->playSound3D("laser_enemy_impact", collision.worldHitPoint, 0.5f, 0.2f);
         } else {
             audioManager->playSound3D("laser_ground_impact", collision.worldHitPoint, 0.5f, 0.2f);
@@ -160,7 +163,7 @@ void rind::Enemy::rotateToPlayer() {
     glm::vec3 toPlayer = targetPlayer->getWorldPosition() + glm::vec3(0.0f, 1.0f, 0.0f) - getWorldPosition();
     toPlayer.y = 0.0f;
     float distanceToPlayer = glm::length(toPlayer);
-    glm::mat4 t = getTransform();
+    const glm::mat4& t = getTransform();
     glm::vec3 forward = -glm::vec3(t[2]);
     forward.y = 0.0f;
     forward = glm::length(forward) > 1e-6f ? glm::normalize(forward) : glm::vec3(0.0f, 0.0f, -1.0f);

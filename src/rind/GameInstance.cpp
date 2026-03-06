@@ -102,7 +102,9 @@ rind::GameInstance::GameInstance() {
             "boxPlatform",
             "gbuffer",
             glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(1.5f, 1.0f,1.5f)), glm::vec3(0.0f, -2.0f, 0.0f)),
-            groundMaterial
+            groundMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         boxplatform->setModel(platformModel);
         engine::Model* playerModel = modelManager->getModel("robot");
@@ -124,7 +126,9 @@ rind::GameInstance::GameInstance() {
             "walls",
             "gbuffer",
             glm::mat4(1.0f),
-            wallsMaterial
+            wallsMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         wallEntity->setModel(walls);
         engine::Entity* playerEntity = new engine::Entity(
@@ -132,7 +136,9 @@ rind::GameInstance::GameInstance() {
             "titlePlayer",
             "gbuffer",
             glm::scale(glm::mat4(1.0f), glm::vec3(0.22f)),
-            gunMaterial
+            gunMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         playerEntity->setModel(playerModel);
         engine::Light* sceneLight = new engine::Light(
@@ -219,7 +225,9 @@ rind::GameInstance::GameInstance() {
             "groundplatform",
             "gbuffer",
             glm::scale(glm::translate(glm::mat4(1.0), glm::vec3(0.0f, -1.8f, 0.0f)), glm::vec3(1.5f, 1.0f, 1.5f)),
-            groundMaterial
+            groundMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         engine::Model* platformModel = modelManager ? modelManager->getModel("groundplatform") : nullptr;
         engine::Model* platformColliderModel = modelManager ? modelManager->getModel("groundplatform-collider") : nullptr;
@@ -241,7 +249,9 @@ rind::GameInstance::GameInstance() {
             "groundblock",
             "gbuffer",
             glm::scale(glm::translate(glm::mat4(1.0), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)),
-            groundMaterial
+            groundMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         engine::Model* groundModel = modelManager ? modelManager->getModel("groundblock") : nullptr;
         groundblock->setModel(groundModel);
@@ -265,7 +275,9 @@ rind::GameInstance::GameInstance() {
             "groundcubes",
             "gbuffer",
             glm::scale(glm::translate(glm::mat4(1.0), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)),
-            rockMaterial
+            rockMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         groundcubes->setModel(groundCubesModel);
 
@@ -275,7 +287,9 @@ rind::GameInstance::GameInstance() {
             "trueground",
             "gbuffer",
             glm::scale(glm::translate(glm::mat4(1.0), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)),
-            rockMaterial
+            rockMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         trueground->setModel(trueGroundModel);
 
@@ -285,7 +299,9 @@ rind::GameInstance::GameInstance() {
             "walls",
             "gbuffer",
             glm::scale(glm::translate(glm::mat4(1.0), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)),
-            wallsMaterial
+            wallsMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         wallEntity->setModel(walls);
 
@@ -297,7 +313,9 @@ rind::GameInstance::GameInstance() {
             "lightObject1",
             "gbuffer",
             glm::translate(glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)), engine::blenderRemap(glm::vec3(13.5296f, -13.3857f, -0.136268f))),
-            lightMaterial
+            lightMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         lightObject1->setModel(lightModel);
         engine::Light* light = new engine::Light(
@@ -329,7 +347,9 @@ rind::GameInstance::GameInstance() {
             "lightObject2",
             "gbuffer",
             glm::translate(glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)), engine::blenderRemap(glm::vec3(13.5296f, 13.6124f, -0.136268f))),
-            lightMaterial
+            lightMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         lightObject2->setModel(lightModel);
         engine::Light* light2 = new engine::Light(
@@ -360,7 +380,9 @@ rind::GameInstance::GameInstance() {
             "lightObject3",
             "gbuffer",
             glm::translate(glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)), engine::blenderRemap(glm::vec3(-13.365f, 13.6124f, -0.136268f))),
-            lightMaterial
+            lightMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         lightObject3->setModel(lightModel);
         engine::Light* light3 = new engine::Light(
@@ -391,7 +413,9 @@ rind::GameInstance::GameInstance() {
             "lightObject4",
             "gbuffer",
             glm::translate(glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)), engine::blenderRemap(glm::vec3(-13.365f, -13.3857f, -0.136268f))),
-            lightMaterial
+            lightMaterial,
+            false,
+            engine::Entity::EntityType::Static
         );
         lightObject4->setModel(lightModel);
         engine::Light* light4 = new engine::Light(

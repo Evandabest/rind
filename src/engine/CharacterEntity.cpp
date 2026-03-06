@@ -23,7 +23,7 @@ void engine::CharacterEntity::updateMovement(float deltaTime) {
     deltaTime = glm::min(deltaTime, MAX_DELTA_TIME);
     glm::vec3 desiredVel(0.0f);
     if (glm::dot(pressed, pressed) > 1e-6f || glm::dot(dashing, dashing) > 1e-6f) {
-        glm::mat4 t = getTransform();
+        const glm::mat4& t = getTransform();
         glm::vec3 forward = -glm::vec3(t[2]);
         forward.y = 0.0f;
         if (glm::length(forward) < 1e-6f) {

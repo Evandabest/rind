@@ -30,8 +30,8 @@ void engine::EntityManager::updateDynamicColliders() {
     }
 }
 
-engine::Entity::Entity(EntityManager* entityManager, const std::string& name, std::string shader, glm::mat4 transform, std::vector<std::string> textures, bool isMovable) 
-    : entityManager(entityManager), name(name), shader(shader), transform(transform), worldTransform(transform), textures(textures), isMovable(isMovable) {
+engine::Entity::Entity(EntityManager* entityManager, const std::string& name, std::string shader, glm::mat4 transform, std::vector<std::string> textures, bool isMovable, EntityType type) 
+    : entityManager(entityManager), name(name), shader(shader), transform(transform), worldTransform(transform), textures(textures), isMovable(isMovable), type(type) {
         entityManager->addEntity(name, this);
     }
 
@@ -473,7 +473,8 @@ void engine::EntityManager::unregisterEntity(const std::string& name) {
         if (entity->getParent() == nullptr) {
             removeRootEntry(entity);
         }
-        if (Light* light = dynamic_cast<Light*>(entity)) {
+        if (entity->getType() == Entity::EntityType::Light) {
+            Light* light = static_cast<Light*>(entity);
             auto lightIt = std::find(lights.begin(), lights.end(), light);
             if (lightIt != lights.end()) {
                 uint32_t removedIdx = std::distance(lights.begin(), lightIt);
@@ -487,7 +488,8 @@ void engine::EntityManager::unregisterEntity(const std::string& name) {
         if (currentCamera && currentCamera->getName() == entity->getName()) {
             setCamera(nullptr);
         }
-        if (Collider* collider = dynamic_cast<Collider*>(entity)) {
+        if (entity->getType() == Entity::EntityType::Collider) {
+            Collider* collider = static_cast<Collider*>(entity);
             spatialGrid.remove(collider);
             colliders.erase(std::remove(colliders.begin(), colliders.end(), collider), colliders.end());
         }

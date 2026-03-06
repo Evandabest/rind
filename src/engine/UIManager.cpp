@@ -5,8 +5,8 @@
 #include <engine/Renderer.h>
 #include <engine/AudioManager.h>
 
-engine::UIObject::UIObject(UIManager* uiManager, glm::mat4 transform, std::string name, glm::vec4 tint, std::string texture, Corner anchorCorner, std::function<void()>* onHover, std::function<void()>* onStopHover)
-    : uiManager(uiManager), name(std::move(name)), tint(tint), transform(transform), anchorCorner(anchorCorner), texture(std::move(texture)), onHover(onHover), onStopHover(onStopHover) {
+engine::UIObject::UIObject(UIManager* uiManager, glm::mat4 transform, std::string name, glm::vec4 tint, std::string texture, Corner anchorCorner, std::function<void()>* onHover, std::function<void()>* onStopHover, UIType type)
+    : uiManager(uiManager), name(std::move(name)), tint(tint), transform(transform), anchorCorner(anchorCorner), texture(std::move(texture)), onHover(onHover), onStopHover(onStopHover), type(type) {
         uiManager->addObject(this);
     }
 
@@ -96,7 +96,7 @@ void engine::UIObject::loadTexture() {
 }
 
 engine::ButtonObject::ButtonObject(UIManager* uiManager, glm::mat4 transform, std::string name, glm::vec4 tint, glm::vec4 textColor, std::string texture, std::string text, std::string font, std::function<void()> onClick, Corner anchorCorner)
-    : UIObject(uiManager, transform, name, tint, texture, anchorCorner), onClick(onClick) {
+    : UIObject(uiManager, transform, name, tint, texture, anchorCorner, nullptr, nullptr, UIType::Button), onClick(onClick) {
         TextObject* textObj = new TextObject(uiManager, glm::mat4(1.0f), name + "_text", textColor, text, font, Corner::Center);
         this->addChild(textObj);
         setOnHover(new std::function<void()>([this]() {
@@ -120,7 +120,7 @@ void engine::ButtonObject::click() {
 }
 
 engine::CheckboxObject::CheckboxObject(UIManager* uiManager, glm::mat4 transform, std::string name, glm::vec4 tint, bool initialState, bool& toggleBool, Corner anchorCorner, std::vector<CheckboxObject*> boundBools)
-    : UIObject(uiManager, transform, name, tint, "", anchorCorner), checkState(initialState), checked(toggleBool), boundBools(boundBools) {
+    : UIObject(uiManager, transform, name, tint, "", anchorCorner, nullptr, nullptr, UIType::Checkbox), checkState(initialState), checked(toggleBool), boundBools(boundBools) {
         if (initialState) {
             setTexture(checkedTexture);
         } else {
@@ -774,7 +774,10 @@ engine::UIObject* engine::UIManager::processMouseMovement(GLFWwindow* window, do
             }
         }
         if (isOverNode && !foundHover &&
-            (node->getOnHover() || dynamic_cast<ButtonObject*>(node) || dynamic_cast<CheckboxObject*>(node) || dynamic_cast<SliderObject*>(node))
+            (node->getOnHover() 
+            || node->getType() == engine::UIType::Button
+            || node->getType() == engine::UIType::Checkbox
+            || node->getType() == engine::UIType::Slider)
         ) {
             hoveredObject = node;
             foundHover = true;

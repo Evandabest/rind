@@ -32,7 +32,7 @@ void rind::SlowBullet::update(float deltaTime) {
     }
     
     engine::AABB bulletAABB = collider->getWorldAABB();
-    std::vector<engine::Collider*> candidates;
+    static thread_local std::vector<engine::Collider*> candidates;
     getEntityManager()->getSpatialGrid().query(bulletAABB, candidates);
     
     engine::Collider* hitCollider = nullptr;
@@ -53,10 +53,13 @@ void rind::SlowBullet::update(float deltaTime) {
         glm::vec3 hitPoint = getWorldPosition();
         glm::vec3 normal = glm::length(hitMtv.normal) > 1e-6f ? glm::normalize(hitMtv.normal) : glm::normalize(-velocity);
         glm::vec3 reflectedDir = glm::reflect(velocity, normal);
-        if (rind::Player* player = dynamic_cast<rind::Player*>(hitCollider->getParent())) {
+        engine::Entity* other = hitCollider->getParent();
+        if (other->getType() == engine::Entity::EntityType::Player) {
+            Player* player = static_cast<Player*>(other);
             player->damage(10.0f);
             audioManager->playSound3D("laser_enemy_impact", hitPoint, 0.5f, 0.2F);
-        } else if (rind::Enemy* enemy = dynamic_cast<rind::Enemy*>(hitCollider->getParent())) {
+        } else if (other->getType() == engine::Entity::EntityType::Enemy) {
+            rind::Enemy* enemy = static_cast<rind::Enemy*>(other);
             enemy->damage(10.0f);
             audioManager->playSound3D("laser_enemy_impact", hitPoint, 0.5f, 0.2F);
         } else {

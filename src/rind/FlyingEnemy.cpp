@@ -33,7 +33,9 @@ rind::FlyingEnemy::FlyingEnemy(engine::EntityManager* entityManager, rind::Playe
                 glm::radians(90.0f),
                 glm::vec3(0.0f, 1.0f, 0.0f)
             ),
-            gunMaterial
+            gunMaterial,
+            false,
+            EntityType::Model
         );
         addChild(enemyModel);
         engine::Entity* face = new engine::Entity(
@@ -44,7 +46,9 @@ rind::FlyingEnemy::FlyingEnemy(engine::EntityManager* entityManager, rind::Playe
                 glm::mat4(1.0f),
                 glm::vec3(1.0f, 0.2f, 0.0f)
             ),
-            gunMaterial
+            gunMaterial,
+            false,
+            EntityType::Generic
         );
         enemyModel->addChild(face);
         enemyModel->setModel(entityManager->getRenderer()->getModelManager()->getModel("flyingenemy"));
@@ -57,7 +61,8 @@ rind::FlyingEnemy::FlyingEnemy(engine::EntityManager* entityManager, rind::Playe
             "",
             glm::translate(glm::mat4(1.0f), glm::vec3(0.5f, 0.0f, 0.0f)),
             {},
-            false
+            false,
+            EntityType::Empty
         );
         face->addChild(gunEndPosition);
         setGravityEnabled(false);
@@ -94,7 +99,7 @@ void rind::FlyingEnemy::update(float deltaTime) {
                     audioManager->playSound3D("enemy_lose", getWorldPosition(), 0.5f, 0.2F);
                     break;
                 }
-                glm::mat4 t = getTransform();
+                const glm::mat4& t = getTransform();
                 glm::vec3 forward = -glm::vec3(t[2]);
                 forward = glm::length(forward) > 1e-6f ? glm::normalize(forward) : glm::vec3(0.0f, 0.0f, -1.0f);
                 glm::vec3 targetDir = glm::normalize(toPlayer);
@@ -167,7 +172,7 @@ void rind::FlyingEnemy::update(float deltaTime) {
                     state = EnemyState::Chasing;
                     break;
                 }
-                glm::mat4 t = getTransform();
+                const glm::mat4& t = getTransform();
                 glm::vec3 forward = -glm::vec3(t[2]);
                 forward.y = 0.0f;
                 forward = glm::length(forward) > 1e-6f ? glm::normalize(forward) : glm::vec3(0.0f, 0.0f, -1.0f);
@@ -290,7 +295,7 @@ void rind::FlyingEnemy::wanderTo(float deltaTime) {
         waiting = true;
         return;
     }
-    glm::mat4 t = getTransform();
+    const glm::mat4& t = getTransform();
     glm::vec3 forward = -glm::vec3(t[2]);
     forward.y = 0.0f;
     forward = glm::length(forward) > 1e-6f ? glm::normalize(forward) : glm::vec3(0.0f, 0.0f, -1.0f);

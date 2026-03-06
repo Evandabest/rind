@@ -30,7 +30,9 @@ rind::WalkingEnemy::WalkingEnemy(engine::EntityManager* entityManager, rind::Pla
                 glm::radians(90.0f),
                 glm::vec3(0.0f, 1.0f, 0.0f)
             ),
-            gunMaterial
+            gunMaterial,
+            false,
+            EntityType::Model
         );
         addChild(enemyModel);
         engine::Entity* face = new engine::Entity(
@@ -41,7 +43,9 @@ rind::WalkingEnemy::WalkingEnemy(engine::EntityManager* entityManager, rind::Pla
                 glm::mat4(1.0f),
                 glm::vec3(0.9f, 2.22f, 0.0f)
             ),
-            gunMaterial
+            gunMaterial,
+            false,
+            engine::Entity::EntityType::Generic
         );
         enemyModel->addChild(face);
         enemyModel->setModel(entityManager->getRenderer()->getModelManager()->getModel("enemy"));
@@ -121,7 +125,7 @@ void rind::WalkingEnemy::update(float deltaTime) {
                     audioManager->playSound3D("enemy_lose", getWorldPosition(), 0.5f, 0.2F);
                     break;
                 }
-                glm::mat4 t = getTransform();
+                const glm::mat4& t = getTransform();
                 glm::vec3 forward = -glm::vec3(t[2]);
                 forward.y = 0.0f;
                 forward = glm::length(forward) > 1e-6f ? glm::normalize(forward) : glm::vec3(0.0f, 0.0f, -1.0f);
@@ -196,7 +200,7 @@ void rind::WalkingEnemy::update(float deltaTime) {
                     state = EnemyState::Chasing;
                     break;
                 }
-                glm::mat4 t = getTransform();
+                const glm::mat4& t = getTransform();
                 glm::vec3 forward = -glm::vec3(t[2]);
                 forward.y = 0.0f;
                 forward = glm::length(forward) > 1e-6f ? glm::normalize(forward) : glm::vec3(0.0f, 0.0f, -1.0f);
@@ -317,7 +321,7 @@ void rind::WalkingEnemy::wanderTo(float deltaTime) {
         waiting = true;
         return;
     }
-    glm::mat4 t = getTransform();
+    const glm::mat4& t = getTransform();
     glm::vec3 forward = -glm::vec3(t[2]);
     forward.y = 0.0f;
     forward = glm::length(forward) > 1e-6f ? glm::normalize(forward) : glm::vec3(0.0f, 0.0f, -1.0f);

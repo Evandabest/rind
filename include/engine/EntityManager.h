@@ -6,7 +6,7 @@
 #include <engine/ModelManager.h>
 #include <engine/SpatialGrid.h>
 #include <string>
-#include <map>
+#include <unordered_map>
 #include <vector>
 #include <glm/glm.hpp>
 
@@ -17,6 +17,19 @@ namespace engine {
     class Collider;
     class Entity {
     public:
+        enum class EntityType {
+            Generic,
+            Camera,
+            Static,
+            Light,
+            IrradianceProbe,
+            Collider,
+            Empty,
+            Model,
+            Character,
+            Player,
+            Enemy
+        };
         struct AnimationState {
             std::string currentAnimation = "";
             float currentTime = 0.0f;
@@ -25,7 +38,7 @@ namespace engine {
             std::string prevAnimation = "";
             float blendFactor = 1.0f; // 0.0 - 1.0
         };
-        Entity(EntityManager* entityManager, const std::string& name, std::string shader, glm::mat4 transform, std::vector<std::string> textures = {}, bool isMovable = false);
+        Entity(EntityManager* entityManager, const std::string& name, std::string shader, glm::mat4 transform, std::vector<std::string> textures = {}, bool isMovable = false, EntityType type = EntityType::Generic);
 
         virtual ~Entity();
 
@@ -39,18 +52,20 @@ namespace engine {
         void setModel(Model* model);
         Model* getModel() const;
 
+        EntityType getType() const { return type; }
+
         bool getIsMovable() const { return isMovable; }
         void setIsMovable(bool isMovable);
 
-        std::string getName() const { return name; }
+        const std::string& getName() const { return name; }
         Entity* getParent() const { return parent; }
         void setParent(Entity* parent) { this->parent = parent; }
-        glm::mat4 getTransform() const { return transform; }
+        const glm::mat4& getTransform() const { return transform; }
         void setTransform(const glm::mat4& transform) { this->transform = transform; ++transformGeneration; }
-        glm::mat4 getWorldTransform() const { return worldTransform; }
+        const glm::mat4& getWorldTransform() const { return worldTransform; }
         uint32_t getTransformGeneration() const { return transformGeneration; }
         glm::vec3 getWorldPosition() const;
-        std::string getShader() const { return shader; }
+        const std::string& getShader() const { return shader; }
 
         const std::vector<std::string>& getTextures() const { return textures; }
         const std::vector<VkDescriptorSet>& getDescriptorSets() const { return descriptorSets; }
@@ -85,8 +100,11 @@ namespace engine {
         bool isAnimated() const { return model && model->hasAnimations() && !animState.currentAnimation.empty(); }
         AnimationState& getAnimationState() { return animState; }
 
+        bool operator==(const Entity& other) const { return this == &other; }
+
     private:
         std::string name;
+        EntityType type = EntityType::Generic;
         std::string shader;
         glm::mat4 transform;
         glm::mat4 worldTransform;
@@ -119,13 +137,23 @@ namespace engine {
         Entity* parent = nullptr;
         uint32_t transformGeneration = 0;
     };
+};
 
+// add hash specialization for Entity to allow usage in unordered_set for entities
+template <>
+struct std::hash<engine::Entity> {
+    std::size_t operator()(const engine::Entity& entity) const {
+        return std::hash<const engine::Entity*>()(&entity);
+    }
+};
+
+namespace engine {
     class EntityManager {
     public:
         EntityManager(engine::Renderer* renderer);
         ~EntityManager();
         
-        std::map<std::string, Entity*>& getEntities() { return entities; }
+        std::unordered_map<std::string, Entity*>& getEntities() { return entities; }
 
         void addEntity(const std::string& name, Entity* entity);
         void removeEntity(const std::string& name);
@@ -209,7 +237,7 @@ namespace engine {
     private:
         engine::Renderer* renderer;
 
-        std::map<std::string, Entity*> entities;
+        std::unordered_map<std::string, Entity*> entities;
         std::vector<Entity*> rootEntities;
         std::vector<Entity*> movableEntities;
         std::vector<Collider*> colliders;

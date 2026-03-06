@@ -7,7 +7,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 engine::IrradianceProbe::IrradianceProbe(EntityManager* entityManager, const std::string& name, glm::mat4 transform, float radius) 
-    : Entity(entityManager, name, "", transform, {}, false), radius(radius) {
+    : Entity(entityManager, name, "", transform, {}, false, EntityType::IrradianceProbe), radius(radius) {
         entityManager->addIrradianceProbe(this);
         createCubemaps(entityManager->getRenderer());
     }
