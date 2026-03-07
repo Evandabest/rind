@@ -1,4 +1,5 @@
 #include <engine/UIManager.h>
+#include <algorithm>
 #include <utility>
 #include <filesystem>
 #include <limits>
@@ -44,10 +45,14 @@ engine::UIObject::~UIObject() {
     }
     delete onHover;
     delete onStopHover;
+    std::unordered_map<std::string, std::variant<UIObject*, TextObject*>>& roots = uiManager->getRootObjects();
+    if (roots.find(name) != roots.end()) {
+        roots.erase(roots.find(name));
+    }
     for (auto& child : children) {
         if (std::holds_alternative<TextObject*>(child)) {
             delete std::get<TextObject*>(child);
-        } else{
+        } else {
             delete std::get<UIObject*>(child);
         }
     }
@@ -62,6 +67,11 @@ engine::TextObject::~TextObject() {
 void engine::UIObject::addChild(UIObject* child) {
     if (child->getParent()) {
         child->getParent()->removeChild(child);
+    } else {
+        std::unordered_map<std::string, std::variant<UIObject*, TextObject*>>& roots = uiManager->getRootObjects();
+        if (roots.find(child->getName()) != roots.end()) {
+            roots.erase(roots.find(child->getName()));
+        }
     }
     children.push_back(child);
     child->setParent(this);
@@ -70,6 +80,11 @@ void engine::UIObject::addChild(UIObject* child) {
 void engine::UIObject::addChild(TextObject* child) {
     if (child->getParent()) {
         child->getParent()->removeChild(child);
+    } else {
+        std::unordered_map<std::string, std::variant<UIObject*, TextObject*>>& roots = uiManager->getRootObjects();
+        if (roots.find(child->getName()) != roots.end()) {
+            roots.erase(roots.find(child->getName()));
+        }
     }
     children.push_back(child);
     child->setParent(this);
@@ -81,6 +96,7 @@ void engine::UIObject::removeChild(UIObject* child) {
     });
     children.erase(it, children.end());
     child->setParent(nullptr);
+    uiManager->getRootObjects().insert({child->getName(), child});
 }
 
 void engine::UIObject::removeChild(TextObject* child) {
@@ -89,6 +105,7 @@ void engine::UIObject::removeChild(TextObject* child) {
     });
     children.erase(it, children.end());
     child->setParent(nullptr);
+    uiManager->getRootObjects().insert({child->getName(), child});
 }
 
 void engine::UIObject::loadTexture() {
@@ -284,19 +301,21 @@ void engine::UIManager::addObject(UIObject* object) {
         }
     }
     objects[object->getName()] = object;
+    if (object->getParent() == nullptr) {
+        rootObjects.insert({object->getName(), object});
+    }
 }
 
 void engine::UIManager::addObject(TextObject* object) {
     const std::string& key = object->getName();
     if (objects.find(key) != objects.end()) {
         std::cout << "Warning: Duplicate TextObject name detected: " << key << ". Overwriting existing object.\n";
-        if (std::holds_alternative<TextObject*>(objects[key])) {
-            delete std::get<TextObject*>(objects[key]);
-        } else{
-            delete std::get<UIObject*>(objects[key]);
-        }
+        removeObject(key);
     }
     objects[key] = object;
+    if (object->getParent() == nullptr) {
+        rootObjects.insert({object->getName(), object});
+    }
 }
 
 glm::vec2 engine::TextObject::getScale() const {
@@ -308,10 +327,21 @@ glm::vec2 engine::TextObject::getScale() const {
 void engine::UIManager::removeObject(const std::string& name) {
     auto it = objects.find(name);
     if (it != objects.end()) {
+        if (rootObjects.find(it->first) != rootObjects.end()) {
+            rootObjects.erase(rootObjects.find(it->first));
+        }
         if (std::holds_alternative<TextObject*>(it->second)) {
-            delete std::get<TextObject*>(it->second);
+            TextObject* obj = std::get<TextObject*>(it->second);
+            if (obj->getParent()) {
+                obj->getParent()->removeChild(obj);
+            }
+            delete obj;
         } else {
-            delete std::get<UIObject*>(it->second);
+            UIObject* obj = std::get<UIObject*>(it->second);
+            if (obj->getParent()) {
+                obj->getParent()->removeChild(obj);
+            }
+            delete obj;
         }
     }
 }
@@ -356,29 +386,15 @@ void engine::UIManager::clear() {
             renderer->setFPSCounter(nullptr);
         }
     }
-    std::vector<std::string> rootKeys;
-    rootKeys.reserve(objects.size());
-    for (auto& [name, object] : objects) {
-        bool isRoot = false;
-        if (std::holds_alternative<TextObject*>(object)) {
-            isRoot = (std::get<TextObject*>(object)->getParent() == nullptr);
+    for (const auto& [name, obj] : rootObjects) {
+        if (std::holds_alternative<TextObject*>(obj)) {
+            delete std::get<TextObject*>(obj);
         } else {
-            isRoot = (std::get<UIObject*>(object)->getParent() == nullptr);
-        }
-        if (isRoot) {
-            rootKeys.push_back(name);
-        }
-    }
-    for (const auto& key : rootKeys) {
-        auto it = objects.find(key);
-        if (it == objects.end()) continue;
-        if (std::holds_alternative<TextObject*>(it->second)) {
-            delete std::get<TextObject*>(it->second);
-        } else {
-            delete std::get<UIObject*>(it->second);
+            delete std::get<UIObject*>(obj);
         }
     }
     objects.clear();
+    rootObjects.clear();
 }
 
 void engine::UIManager::loadTextures() {
@@ -756,7 +772,16 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node
             LayoutRect designRect = resolveDesignRect(obj, anchorRect);
             LayoutRect pixelRect = toPixelRect(designRect, glm::vec2(0.0f), layoutScale);
             drawUIObject(obj, pixelRect);
-            for (const auto& child : obj->getChildren()) {
+            std::vector<std::variant<UIObject*, TextObject*>>& children = obj->getChildren();
+            std::sort(children.begin(), children.end(), [](const auto& a, const auto& b) {
+                auto getZ = [](const std::variant<UIObject*, TextObject*>& v) -> float {
+                    if (std::holds_alternative<UIObject*>(v))
+                        return std::get<UIObject*>(v)->getTransform()[3][2];
+                    return std::get<TextObject*>(v)->getTransform()[3][2];
+                };
+                return getZ(a) > getZ(b);
+            });
+            for (const auto& child : children) {
                 self(self, child, designRect, false);
             }
         } else {
@@ -767,11 +792,22 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node
         }
     };
 
-    for (auto& [name, obj] : objects) {
-        bool isRoot = std::holds_alternative<TextObject*>(obj) ? (std::get<TextObject*>(obj)->getParent() == nullptr) : (std::get<UIObject*>(obj)->getParent() == nullptr);
-        if (isRoot) {
-            traverse(traverse, obj, rootAnchorRect, true);
-        }
+    static thread_local std::vector<std::variant<UIObject*, TextObject*>> sortedRoots;
+    sortedRoots.clear();
+    sortedRoots.reserve(rootObjects.size());
+    for (auto& [name, obj] : rootObjects) {
+        sortedRoots.push_back(obj);
+    }
+    std::sort(sortedRoots.begin(), sortedRoots.end(), [](const auto& a, const auto& b) {
+        auto getZ = [](const std::variant<UIObject*, TextObject*>& v) -> float {
+            if (std::holds_alternative<UIObject*>(v))
+                return std::get<UIObject*>(v)->getTransform()[3][2];
+            return std::get<TextObject*>(v)->getTransform()[3][2];
+        };
+        return getZ(a) > getZ(b);
+    });
+    for (auto& obj : sortedRoots) {
+        traverse(traverse, obj, rootAnchorRect, true);
     }
 }
 

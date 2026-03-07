@@ -17,12 +17,9 @@ Texture2D<float4> sceneTexture;
 Texture2D<float4> uiTexture;
 
 [[vk::binding(2)]]
-Texture2D<float4> textTexture;
-
-[[vk::binding(3)]]
 Texture2D<float4> smaaTexture;
 
-[[vk::binding(4)]]
+[[vk::binding(3)]]
 SamplerState sampleSampler;
 
 float3 FXAA(float2 uv) {
@@ -71,8 +68,7 @@ float3 FXAA(float2 uv) {
 
 float4 main(VSOutput input) : SV_Target {
     float4 uiColor = uiTexture.Sample(sampleSampler, input.fragTexCoord);
-    float4 textColor = textTexture.Sample(sampleSampler, input.fragTexCoord);
-    
+
     float3 sceneColor;
     if (pc.flag == 2) {
         sceneColor = smaaTexture.Sample(sampleSampler, input.fragTexCoord).rgb;
@@ -81,7 +77,6 @@ float4 main(VSOutput input) : SV_Target {
     } else {
         sceneColor = sceneTexture.Sample(sampleSampler, input.fragTexCoord).rgb;
     }
-   
-    float4 sceneUI = lerp(float4(sceneColor, 1.0), uiColor, uiColor.a);
-    return lerp(sceneUI, textColor, textColor.a);
+
+    return lerp(float4(sceneColor, 1.0), uiColor, uiColor.a);
 }

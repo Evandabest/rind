@@ -564,21 +564,6 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
         shaders.push_back(shader);
     }
 
-    // Text Pass
-    auto textPass = std::make_shared<PassInfo>();
-    textPass->name = "TextPass";
-    textPass->usesSwapchain = false;
-    {
-        std::vector<PassImage> images;
-        images.push_back({
-            .name = "TextColor",
-            .clearValue = { .color = { {0.0f, 0.0f, 0.0f, 0.0f} } },
-            .format = VK_FORMAT_R8G8B8A8_UNORM,
-            .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-        });
-        textPass->images = images;
-    }
-
     auto mainPass = std::make_shared<PassInfo>();
     mainPass->name = "Main";
     mainPass->usesSwapchain = true;
@@ -971,7 +956,7 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                 .cullMode = VK_CULL_MODE_NONE,
                 .depthWrite = false,
                 .enableDepth = false,
-                .passInfo = textPass,
+                .passInfo = uiPass,
                 .colorAttachmentCount = 1,
                 .getVertexInputDescriptions = [](std::vector<VkVertexInputBindingDescription>& bindings, std::vector<VkVertexInputAttributeDescription>& attributes) {
                     bindings.resize(1);
@@ -1130,12 +1115,11 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
             .fragment = { shaderPath("composite.frag"), VK_SHADER_STAGE_FRAGMENT_BIT },
             .config = {
                 .vertexBitBindings = 0,
-                .fragmentBitBindings = 5,
+                .fragmentBitBindings = 4,
                 .fragmentDescriptorCounts = {
-                    1, 1, 1, 1, 1
+                    1, 1, 1, 1
                 },
                 .fragmentDescriptorTypes = {
-                    VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                     VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                     VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                     VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -1149,8 +1133,7 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                 .inputBindings = {
                     { 0, "combine", "CombinedColor" },
                     { 1, "ui", "UIColor" },
-                    { 2, "text", "TextColor" },
-                    { 3, "smaaBlend", "SMAABlendedColor" }
+                    { 2, "smaaBlend", "SMAABlendedColor" }
                 }
             }
         };
@@ -1184,8 +1167,7 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
     pushNode(true, smaaEdgePass.get(), { "smaaEdge" });
     pushNode(true, smaaWeightPass.get(), { "smaaWeight" });
     pushNode(true, smaaBlendPass.get(), { "smaaBlend" });
-    pushNode(true, uiPass.get(), { "ui" });
-    pushNode(true, textPass.get(), { "text" });
+    pushNode(true, uiPass.get(), { "ui", "text" });
     pushNode(true, mainPass.get(), { "composite" });
 
     return shaders;

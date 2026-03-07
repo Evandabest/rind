@@ -146,7 +146,7 @@ rind::Player::Player(
         float heightScale = static_cast<float>(displaySize.height) / (baseHeight * layoutScale);
         healthbarEmptyObject = new engine::UIObject(
             entityManager->getRenderer()->getUIManager(),
-            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, -0.08f, 1.0f)), glm::vec3(0.0f, -280.0f, 0.0f)),
+            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, -0.08f, 1.0f)), glm::vec3(0.0f, -280.0f, 1.0f)),
             "healthbarEmpty",
             glm::vec4(1.0f),
             "ui_healthbar_empty",
@@ -162,7 +162,7 @@ rind::Player::Player(
         );
         damageEffectObject = new engine::UIObject(
             entityManager->getRenderer()->getUIManager(),
-            glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, heightScale, 1.0f)),
+            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, heightScale, 1.0f)), glm::vec3(0.0f, 0.0f, 2.0f)),
             "damageEffect",
             glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
             "ui_healthbar_overlay"
@@ -195,13 +195,13 @@ void rind::Player::resizeHealthbar() {
     float widthScale = static_cast<float>(displaySize.width) / (baseWidth * layoutScale);
     float heightScale = static_cast<float>(displaySize.height) / (baseHeight * layoutScale);
     healthbarEmptyObject->setTransform(
-        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, -0.08f, 1.0f)), glm::vec3(0.0f, -280.0f, 0.0f))
+        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, -0.08f, 1.0f)), glm::vec3(0.0f, -280.0f, 1.0f))
     );
     healthbarObject->setTransform(
         glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, -0.08f, 1.0f)), glm::vec3(0.0f, -280.0f, 0.0f))
     );
     damageEffectObject->setTransform(
-        glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, heightScale, 1.0f))
+        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, heightScale, 1.0f)), glm::vec3(0.0f, 0.0f, 2.0f))
     );
 }
 

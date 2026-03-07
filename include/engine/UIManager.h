@@ -115,7 +115,7 @@ namespace engine {
         void addChild(TextObject* child);
         void removeChild(UIObject* child);
         void removeChild(TextObject* child);
-        const std::vector<std::variant<UIObject*, TextObject*>>& getChildren() const { return children; }
+        std::vector<std::variant<UIObject*, TextObject*>>& getChildren() { return children; }
         UIObject* getParent() const { return parent; }
         void setParent(UIObject* parent) { this->parent = parent; }
 
@@ -341,10 +341,12 @@ namespace engine {
 
         LayoutRect resolveDesignRect(std::variant<UIObject*, TextObject*> node, const LayoutRect& parentRect);
         LayoutRect toPixelRect(const LayoutRect& designRect, const glm::vec2& canvasOrigin, float layoutScale);
+        std::unordered_map<std::string, std::variant<UIObject*, TextObject*>>& getRootObjects() { return rootObjects; }
 
     private:
         Renderer* renderer;
         std::unordered_map<std::string, std::variant<UIObject*, TextObject*>> objects;
+        std::unordered_map<std::string, std::variant<UIObject*, TextObject*>> rootObjects;
         std::unordered_map<std::string, Font> fonts;
         std::string fontDirectory = "";
         std::vector<std::string> pendingRemovals;
