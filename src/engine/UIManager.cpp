@@ -246,8 +246,15 @@ void engine::SliderObject::computeSliderDesignWidth() {
 float engine::SliderObject::getSliderValueFromMouse(GLFWwindow* window) {
     computeSliderDesignWidth();
     double mouseX, mouseY;
-    glfwGetCursorPos(window, &mouseX, &mouseY);
     Renderer* renderer = getUIManager()->getRenderer();
+    InputManager* inputManager = renderer->getInputManager();
+    if (inputManager->isControllerMode()) {
+        const glm::dvec2& pos = inputManager->getFakeControllerCursor();
+        mouseX = pos.x;
+        mouseY = pos.y;
+    } else {
+        glfwGetCursorPos(window, &mouseX, &mouseY);
+    }
     glm::vec2 swapExtentF = glm::vec2(static_cast<float>(renderer->getSwapChainExtent().width), static_cast<float>(renderer->getSwapChainExtent().height));
     float xscale = 1.0f, yscale = 1.0f;
     glfwGetWindowContentScale(window, &xscale, &yscale);
@@ -393,6 +400,7 @@ void engine::UIManager::clear() {
             delete std::get<UIObject*>(obj);
         }
     }
+    cursor = nullptr;
     objects.clear();
     rootObjects.clear();
 }

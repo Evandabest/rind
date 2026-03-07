@@ -2554,9 +2554,16 @@ int engine::Renderer::rateDeviceSuitability(VkPhysicalDevice device) {
 
 void engine::Renderer::processInput(GLFWwindow* window) {
     auto renderer = reinterpret_cast<engine::Renderer*>(glfwGetWindowUserPointer(window));
-    if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_RELEASE) {
+    InputManager* inputManager = renderer->getInputManager();
+    if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_RELEASE
+     || (renderer->clicking && inputManager->isControllerMode() && !inputManager->isFakeCursorPressing())
+    ) {
         renderer->clicking = false;
-    } else if (renderer->getHoveredObject() && glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
+    } else if (renderer->getHoveredObject()
+     && (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS
+        || (inputManager->isControllerMode() && inputManager->isFakeCursorPressing())
+        )
+    ) {
         if (!renderer->clicking) {
             if (renderer->getHoveredObject()->getType() == UIType::Button) {
                 ButtonObject* button = static_cast<ButtonObject*>(renderer->getHoveredObject());
@@ -2583,14 +2590,11 @@ void engine::Renderer::processInput(GLFWwindow* window) {
             slider->setValue(slider->getSliderValueFromMouse(window));
             renderer->clicking = true;
         }
-        
     } else if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS
     && !renderer->inputManager->getCursorLocked() && !renderer->inputManager->getUIFocused()) {
         renderer->toggleLockCursor(true);
     }
-    if (renderer && renderer->inputManager) {
-        renderer->inputManager->processInput(window);
-    }
+    inputManager->processInput(window);
 }
 
 void engine::Renderer::framebufferResizeCallback(GLFWwindow* window, int width, int height) {

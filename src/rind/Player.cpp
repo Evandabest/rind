@@ -529,6 +529,67 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                     lastShotTime = std::chrono::steady_clock::now();
                 }
             }
+        } else if (event.type == engine::InputEvent::Type::GamepadButtonPress) {
+            if (renderer->isPaused() && event.gamepadButtonEvent.button != GLFW_GAMEPAD_BUTTON_START) {
+                inputManager->resetKeyStates();
+                continue;
+            }
+            switch (event.gamepadButtonEvent.button) {
+                case GLFW_GAMEPAD_BUTTON_START:
+                    renderer->getSettingsManager()->hideSettingsUI();
+                    renderer->isPaused() ? hidePauseMenu() : showPauseMenu();
+                    break;
+                case GLFW_GAMEPAD_BUTTON_A:
+                    if (isGrounded()) {
+                        jump(8.0f);
+                    } else if (canDoubleJump) {
+                        canDash = true;
+                        move(glm::vec3(0.0f, 3.0f, 0.0f));
+                        canDoubleJump = false;
+                        resetDoubleJump = true;
+                    }
+                    break;
+                case GLFW_GAMEPAD_BUTTON_B:
+                    canDash = true;
+                    break;
+                default:
+                    break;
+            }
+        } else if (event.type == engine::InputEvent::Type::GamepadAxisMove) {
+            switch (event.gamepadAxisEvent.axis) {
+                case GLFW_GAMEPAD_AXIS_LEFT_X:
+                    stopMove(glm::vec3(0.0f, 0.0f, getPressed().z));
+                    if (std::abs(event.gamepadAxisEvent.value) > 0.2f) {
+                        move(glm::vec3(0.0f, 0.0f, event.gamepadAxisEvent.value));
+                    }
+                    break;
+                case GLFW_GAMEPAD_AXIS_LEFT_Y:
+                    stopMove(glm::vec3(getPressed().x, 0.0f, 0.0f));
+                    if (std::abs(event.gamepadAxisEvent.value) > 0.2f) {
+                        move(glm::vec3(-event.gamepadAxisEvent.value, 0.0f, 0.0f));
+                    }
+                    break;
+                case GLFW_GAMEPAD_AXIS_RIGHT_X:
+                    if (std::abs(event.gamepadAxisEvent.value) > 0.2f) {
+                        rotate(glm::vec3(0.0f, -event.gamepadAxisEvent.value * mouseSensitivity * 10.0f, 0.0f));
+                    }
+                    break;
+                case GLFW_GAMEPAD_AXIS_RIGHT_Y:
+                    if (std::abs(event.gamepadAxisEvent.value) > 0.2f) {
+                        rotate(glm::vec3(0.0f, 0.0f, -event.gamepadAxisEvent.value * mouseSensitivity * 10.0f));
+                    }
+                    break;
+                case GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER:
+                    if (event.gamepadAxisEvent.value > 0.5f
+                     && (std::chrono::steady_clock::now() - lastShotTime) >= std::chrono::duration<float>(shootingCooldown)) 
+                    {
+                        shoot();
+                        lastShotTime = std::chrono::steady_clock::now();
+                    }
+                    break;
+                default:
+                    break;
+            }
         }
     }
     if (!isGrounded() && !resetDoubleJump) {

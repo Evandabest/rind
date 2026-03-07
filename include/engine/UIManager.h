@@ -343,11 +343,44 @@ namespace engine {
         LayoutRect toPixelRect(const LayoutRect& designRect, const glm::vec2& canvasOrigin, float layoutScale);
         std::unordered_map<std::string, std::variant<UIObject*, TextObject*>>& getRootObjects() { return rootObjects; }
 
+        void createCursorObject() {
+            cursor = new UIObject(
+                this,
+                glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.1f, 0.1f, 1.0f)), glm::vec3(0.0f, 0.0f, -10.0f)),
+                "controllerCursor",
+                glm::vec4(1.0f),
+                "ui_cursor",
+                Corner::TopLeft
+            );
+            cursor->setEnabled(false);
+        }
+        void setFakeCursorPosition(const glm::dvec2& mousePos) {
+            float xscale = 1.0f, yscale = 1.0f;
+            glfwGetWindowContentScale(renderer->getWindow(), &xscale, &yscale);
+            float contentScale = std::max(xscale, yscale);
+            float layoutScale = std::max(renderer->getUIScale() * contentScale, 0.0001f);
+            const float cursorScale = 0.1f;
+            glm::vec3 designPos(
+                static_cast<float>(mousePos.x) * std::max(xscale, 1.0f) / (layoutScale * cursorScale),
+                -static_cast<float>(mousePos.y) * std::max(yscale, 1.0f) / (layoutScale * cursorScale),
+                -10.0f
+            );
+            cursor->setTransform(
+                glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(cursorScale, cursorScale, 1.0f)), designPos)
+            );
+        }
+        void setCursorEnabled(bool enabled) {
+            showCursor = enabled;
+            cursor->setEnabled(enabled);
+        }
+
     private:
         Renderer* renderer;
         std::unordered_map<std::string, std::variant<UIObject*, TextObject*>> objects;
         std::unordered_map<std::string, std::variant<UIObject*, TextObject*>> rootObjects;
         std::unordered_map<std::string, Font> fonts;
+        UIObject* cursor = nullptr;
+        bool showCursor = false;
         std::string fontDirectory = "";
         std::vector<std::string> pendingRemovals;
     };

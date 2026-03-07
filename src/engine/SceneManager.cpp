@@ -19,6 +19,7 @@ void engine::SceneManager::setActiveScene(int index) {
     renderer->resetPostProcessDescriptorPools();
     renderer->getEntityManager()->clear();
     renderer->getUIManager()->clear();
+    renderer->getUIManager()->createCursorObject();
     renderer->getParticleManager()->clear();
     renderer->getVolumetricManager()->clear();
     renderer->getAudioManager()->stopAllSounds();
