@@ -1,4 +1,5 @@
 #include <rind/Enemy.h>
+#include <rind/TempTrigger.h>
 #include <engine/ParticleManager.h>
 #include <engine/VolumetricManager.h>
 #include <glm/gtc/quaternion.hpp>
@@ -287,6 +288,12 @@ void rind::Enemy::damage(float amount) {
             6.0f,
             2.0f,
             0.3f
+        );
+        rind::TempTrigger* triggerCollider = new rind::TempTrigger(
+            getEntityManager(),
+            "enemyExplosionTrigger" + getName(),
+            glm::scale(glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)), glm::vec3(9.0f, 9.0f, 9.0f)),
+            4.0f
         );
         audioManager->playSound3D("enemy_death", getWorldPosition(), 1.2f, 0.15F);
         getEntityManager()->markForDeletion(this);

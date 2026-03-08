@@ -45,7 +45,7 @@ void rind::SlowBullet::update(float deltaTime) {
     engine::Collider::CollisionMTV hitMtv;
     
     for (engine::Collider* other : candidates) {
-        if (other == collider) continue;
+        if (other == collider || other->getType() == engine::Entity::EntityType::Trigger) continue;
         
         engine::Collider::CollisionMTV mtv;
         if (collider->intersectsMTV(*other, mtv)) {
@@ -160,17 +160,19 @@ void rind::SlowBullet::update(float deltaTime) {
             );
         }
         float streakRoll = dist(rng) + 1.0f;
-        if (streakRoll > 1.8f) {
-            float rotAmount = dist(rng) * 2.0f * PI;
-            glm::mat4 rot = glm::rotate(glm::mat4(1.0f), rotAmount, randomDir);
-            glm::vec3 offset = glm::vec3(rot * glm::vec4(0.25f, 0.0f, 0.0f, 1.0f));
-            glm::vec3 startPos = getWorldPosition() + offset;
-            glm::mat4 rot2 = glm::rotate(glm::mat4(1.0f), rotAmount + 0.25f, randomDir);
-            glm::vec3 endOffset = glm::vec3(rot2 * glm::vec4(0.25f, 0.0f, 0.0f, 1.0f));
-            glm::vec3 endPos = getWorldPosition() + endOffset;
-            particleManager->spawnTrail(startPos, glm::normalize(endPos - startPos), color, 0.2f);
+        if (streakRoll > 1.0f) { // 50% chance
+            glm::vec3 startPos = getWorldPosition() + randomDir * 0.2f;
+            float randomPhi2 = dist(rng) * 2.0f * PI;
+            float randomCostheta2 = dist(rng) * 2.0f - 1.0f;
+            float randomSintheta2 = sqrt(1.0f - randomCostheta2 * randomCostheta2);
+            glm::vec3 randomDir2 = glm::vec3(
+                cos(randomPhi2) * randomSintheta2,
+                sin(randomPhi2) * randomSintheta2,
+                randomCostheta2
+            );
+            particleManager->spawnTrail(startPos, randomDir2 * 0.75f, color, 0.2f);
         }
-        if (streakRoll > 1.95f) {
+        if (streakRoll > 1.95f) { // 2.5% chance
             std::string choice = streakRoll >= 1.97 ? "1" : "2";
             audioManager->playSound3D("slowbullet_sound_" + choice, getWorldPosition(), 0.4f, 0.5F);
         }

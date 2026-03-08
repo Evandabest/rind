@@ -73,7 +73,7 @@ engine::Collider::Collision engine::Particle::checkCollision(const glm::vec3& po
         if (!engine::Collider::aabbIntersects(particleAABB, otherAABB, 0.0f)) {
             continue;
         }
-        Collider::ColliderType type = collider->getType();
+        Collider::ColliderType type = collider->getColliderType();
         bool collides = false;
         glm::vec3 normal(0.0f);
         switch (type) {
@@ -200,9 +200,10 @@ engine::ParticleManager::~ParticleManager() {
     particleBuffers.clear();
     particleBufferMemory.clear();
     particleBuffersMapped.clear();
-    std::vector<Particle*> particlesCopy = particles;
+    auto particlesCopy = std::move(particles);
     particles.clear();
-    for (auto& particle : particlesCopy) {
+    for (auto* particle : particlesCopy) {
+        particle->detachFromManager();
         delete particle;
     }
 }

@@ -42,9 +42,10 @@ engine::VolumetricManager::~VolumetricManager() {
         vkDestroyBuffer(renderer->getDevice(), cubeVertexBuffer, nullptr);
         vkFreeMemory(renderer->getDevice(), cubeVertexBufferMemory, nullptr);
     }
-    std::vector<Volumetric*> volumetricsCopy = volumetrics;
+    auto volumetricsCopy = std::move(volumetrics);
     volumetrics.clear();
     for (auto* v : volumetricsCopy) {
+        v->detachFromManager();
         delete v;
     }
 }

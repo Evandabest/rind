@@ -438,6 +438,7 @@ static std::unordered_set<engine::Entity::EntityType> wontResetShadows = {
     engine::Entity::EntityType::Camera,
     engine::Entity::EntityType::IrradianceProbe,
     engine::Entity::EntityType::Collider,
+    engine::Entity::EntityType::Trigger,
     engine::Entity::EntityType::Empty
 };
 
@@ -509,7 +510,7 @@ void engine::EntityManager::unregisterEntity(const std::string& name) {
         if (currentCamera && currentCamera->getName() == entity->getName()) {
             setCamera(nullptr);
         }
-        if (entity->getType() == Entity::EntityType::Collider) {
+        if (entity->getType() == Entity::EntityType::Collider || entity->getType() == Entity::EntityType::Trigger) {
             Collider* collider = static_cast<Collider*>(entity);
             spatialGrid.remove(collider);
             colliders.erase(std::remove(colliders.begin(), colliders.end(), collider), colliders.end());
@@ -524,12 +525,12 @@ void engine::EntityManager::clear() {
     irradianceProbes.clear();
     colliders.clear();
     spatialGrid.clear();
-    std::vector<Entity*> rootsSnapshot;
-    rootsSnapshot.swap(rootEntities);
-    for (Entity* root : rootsSnapshot) {
+    entities.clear();
+    auto roots = std::move(rootEntities);
+    rootEntities.clear();
+    for (Entity* root : roots) {
         delete root;
     }
-    entities.clear();
 }
 
 void engine::EntityManager::loadTextures() {

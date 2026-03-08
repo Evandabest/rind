@@ -57,11 +57,17 @@ engine::UIObject::~UIObject() {
         }
     }
     children.clear();
-    uiManager->getObjects().erase(uiManager->getObjects().find(name));
+    auto it = uiManager->getObjects().find(name);
+    if (it != uiManager->getObjects().end()) {
+        uiManager->getObjects().erase(it);
+    }
 }
 
 engine::TextObject::~TextObject() {
-    uiManager->getObjects().erase(uiManager->getObjects().find(name));
+    auto it = uiManager->getObjects().find(name);
+    if (it != uiManager->getObjects().end()) {
+        uiManager->getObjects().erase(it);
+    }
 }
 
 void engine::UIObject::addChild(UIObject* child) {
@@ -393,16 +399,17 @@ void engine::UIManager::clear() {
             renderer->setFPSCounter(nullptr);
         }
     }
-    for (const auto& [name, obj] : rootObjects) {
+    auto roots = std::move(rootObjects);
+    rootObjects.clear();
+    objects.clear();
+    cursor = nullptr;
+    for (const auto& [name, obj] : roots) {
         if (std::holds_alternative<TextObject*>(obj)) {
             delete std::get<TextObject*>(obj);
         } else {
             delete std::get<UIObject*>(obj);
         }
     }
-    cursor = nullptr;
-    objects.clear();
-    rootObjects.clear();
 }
 
 void engine::UIManager::loadTextures() {

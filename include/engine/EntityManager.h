@@ -24,6 +24,7 @@ namespace engine {
             Light,
             IrradianceProbe,
             Collider,
+            Trigger,
             Empty,
             Model,
             Character,
@@ -61,6 +62,7 @@ namespace engine {
         Model* getModel() const;
 
         const EntityType& getType() const { return type; }
+        void setEntityType(const EntityType& newType) { type = newType; }
 
         bool getIsMovable() const { return isMovable; }
         void setIsMovable(bool isMovable);

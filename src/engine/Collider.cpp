@@ -39,7 +39,7 @@ std::vector<engine::Collider::Collision> engine::Collider::raycast(EntityManager
         if (!aabbIntersects(rayAABB, aabb)) {
             continue;
         }
-        switch (collider->getType()) {
+        switch (collider->getColliderType()) {
             case ColliderType::AABB: {
                 AABBCollider* aabbCollider = static_cast<AABBCollider*>(collider);
                 glm::vec3 invDir = 1.0f / rayDir;
@@ -596,7 +596,7 @@ bool engine::AABBCollider::intersectsMTV(Collider& other, CollisionMTV& out, con
     auto cornersA = Collider::buildOBBCorners(transform, halfSize);
     AABB thisAABB = Collider::aabbFromCorners(cornersA);
     AABB otherAABB = other.getWorldAABB();
-    if (other.getType() == ColliderType::AABB) {
+    if (other.getColliderType() == ColliderType::AABB) {
         return Collider::aabbOverlapMTV(thisAABB, otherAABB, out);
     }
     if (!Collider::aabbIntersects(thisAABB, otherAABB, 0.001f)) {
@@ -617,7 +617,7 @@ bool engine::AABBCollider::intersectsMTV(Collider& other, CollisionMTV& out, con
     std::span<const glm::vec3> faceAxesB;
     std::span<const glm::vec3> edgeAxesB;
     glm::vec3 centerB(0.0f);
-    switch (other.getType()) {
+    switch (other.getColliderType()) {
         case ColliderType::OBB: {
             const glm::mat4& otherTransform = other.getWorldTransform();
             cornersB = Collider::buildOBBCorners(otherTransform, static_cast<const engine::OBBCollider&>(other).getHalfSize());
@@ -697,7 +697,7 @@ bool engine::OBBCollider::intersectsMTV(Collider& other, CollisionMTV& out, cons
     std::span<const glm::vec3> edgeAxesB;
     glm::vec3 centerB(0.0f);
 
-    switch (other.getType()) {
+    switch (other.getColliderType()) {
         case ColliderType::AABB: {
             cornersB = getCornersFromAABB(otherAABB);
             vertsB = cornersB;
@@ -754,7 +754,7 @@ bool engine::ConvexHullCollider::intersectsMTV(Collider& other, CollisionMTV& ou
     std::span<const glm::vec3> edgeAxesB;
     glm::vec3 centerB(0.0f);
     const glm::mat4& otherTransform = other.getWorldTransform();
-    switch (other.getType()) {
+    switch (other.getColliderType()) {
         case ColliderType::AABB: {
             cornersB = getCornersFromAABB(otherAABB);
             vertsB = cornersB;

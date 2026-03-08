@@ -1,5 +1,6 @@
 #include <rind/Player.h>
 #include <rind/Enemy.h>
+#include <rind/TempTrigger.h>
 #include <engine/ParticleManager.h>
 #include <engine/VolumetricManager.h>
 #include <engine/UIManager.h>
@@ -267,6 +268,16 @@ void rind::Player::update(float deltaTime) {
             glm::vec3(gunModelScale)
         )
     );
+    if (healthbarObject->getUVClip().z != getHealth() / getMaxHealth()) {
+        float dir = getHealth() - getMaxHealth() * healthbarObject->getUVClip().z;
+        float changeAmount = deltaTime * 30.0f;
+        if (std::abs(dir) < changeAmount) {
+            healthbarObject->setUVClip(glm::vec4(0.0f, 0.0f, getHealth() / getMaxHealth(), 1.0f));
+        } else {
+            changeAmount *= (dir > 0.0f) ? 1.0f : -1.0f;
+            healthbarObject->setUVClip(glm::vec4(0.0f, 0.0f, healthbarObject->getUVClip().z + changeAmount / getMaxHealth(), 1.0f));
+        }
+    }
     if (cameraShakeIntensity > 0.0f) {
         glm::vec3 randomCameraLoc = glm::vec3(dist(rng), dist(rng), dist(rng)) * cameraShakeIntensity * 0.05f;
         camHolder->setTransform(glm::translate(glm::mat4(1.0f), randomCameraLoc));
@@ -528,6 +539,24 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                     shoot();
                     lastShotTime = std::chrono::steady_clock::now();
                 }
+            } else if (event.mouseButtonEvent.button == GLFW_MOUSE_BUTTON_RIGHT
+             && (std::chrono::steady_clock::now() - lastShotTime) >= std::chrono::duration<float>(shootingCooldown))
+            {
+                static thread_local std::vector<engine::Collider*> candidates;
+                candidates.clear();
+                getEntityManager()->getSpatialGrid().query(getCollider()->getWorldAABB(), candidates);
+                for (engine::Collider* collider : candidates) {
+                    if (collider->getType() == engine::Entity::EntityType::Trigger) {
+                        rind::TempTrigger* trigger = dynamic_cast<rind::TempTrigger*>(collider);
+                        if (trigger) {
+                            if (engine::Collider::aabbIntersects(getCollider()->getWorldAABB(), trigger->getWorldAABB())) {
+                                damage(-10.0f); // heals from enemy explosions
+                                lastShotTime = std::chrono::steady_clock::now();
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         } else if (event.type == engine::InputEvent::Type::GamepadButtonPress) {
             if (renderer->isPaused() && event.gamepadButtonEvent.button != GLFW_GAMEPAD_BUTTON_START) {
@@ -581,10 +610,31 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                     break;
                 case GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER:
                     if (event.gamepadAxisEvent.value > 0.5f
-                     && (std::chrono::steady_clock::now() - lastShotTime) >= std::chrono::duration<float>(shootingCooldown)) 
+                     && (std::chrono::steady_clock::now() - lastShotTime) >= std::chrono::duration<float>(shootingCooldown))
                     {
                         shoot();
                         lastShotTime = std::chrono::steady_clock::now();
+                    }
+                    break;
+                case GLFW_GAMEPAD_AXIS_LEFT_TRIGGER:
+                    if (event.gamepadAxisEvent.value > 0.5f
+                     && (std::chrono::steady_clock::now() - lastShotTime) >= std::chrono::duration<float>(shootingCooldown))
+                    {
+                        static thread_local std::vector<engine::Collider*> candidates;
+                        candidates.clear();
+                        getEntityManager()->getSpatialGrid().query(getCollider()->getWorldAABB(), candidates);
+                        for (engine::Collider* collider : candidates) {
+                            if (collider->getType() == engine::Entity::EntityType::Trigger) {
+                                rind::TempTrigger* trigger = dynamic_cast<rind::TempTrigger*>(collider);
+                                if (trigger) {
+                                    if (engine::Collider::aabbIntersects(getCollider()->getWorldAABB(), trigger->getWorldAABB())) {
+                                        damage(-10.0f); // heals from enemy explosions
+                                        lastShotTime = std::chrono::steady_clock::now();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                     }
                     break;
                 default:
@@ -632,12 +682,29 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
 }
 
 void rind::Player::damage(float amount) {
-    setHealth(getHealth() - amount);
-    healthbarObject->setUVClip(glm::vec4(0.0f, 0.0f, getHealth() / getMaxHealth(), 1.0f));
-    cameraShakeIntensity = dist(rng) * 0.5f + 1.2f;
+    if (isDead) {
+        return;
+    }
+    bool earlyReturn = false;
+    if (amount < 0.0f) {
+        if (getHealth() >= getMaxHealth()) {
+            return;
+        }
+        else {
+            audioManager->playSound("player_heal", 0.4f, 0.4f);
+            earlyReturn = true;
+        }
+    }
+    setHealth(std::min(getHealth() - amount, getMaxHealth()));
     if (getHealth() <= 0.5f * getMaxHealth()) {
         heartbeatOffset = 0.3f + getHealth() / getMaxHealth();
+    } else {
+        heartbeatOffset = 0.0f;
     }
+    if (earlyReturn) {
+        return;
+    }
+    cameraShakeIntensity = dist(rng) * 0.5f + 1.2f;
     if (getHealth() <= 0.0f && !isDead) {
         heartbeatOffset = 0.0f;
         isDead = true;

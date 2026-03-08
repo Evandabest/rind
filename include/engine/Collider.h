@@ -31,7 +31,7 @@ namespace engine {
             const ColliderType& type
         );
         virtual ~Collider();
-        const ColliderType& getType() const { return type; }
+        const ColliderType& getColliderType() const { return type; }
         virtual AABB getWorldAABB() = 0;
         virtual bool intersectsMTV(Collider& other, CollisionMTV& out, const glm::mat4& deltaTransform = glm::mat4(1.0f)) = 0;
         glm::vec3 intersects(Collider& other, const glm::mat4 deltaTransform = glm::mat4(1.0f)) {
@@ -46,7 +46,10 @@ namespace engine {
         static AABB aabbFromCorners(const std::array<glm::vec3, 8>& corners);
         static std::array<glm::vec3, 8> getCornersFromAABB(const AABB& aabb);
         bool getIsTrigger() const { return isTrigger; }
-        void setIsTrigger(bool trigger) { isTrigger = trigger; }
+        void setIsTrigger(bool trigger) {
+            isTrigger = trigger;
+            setEntityType(trigger ? engine::Entity::EntityType::Trigger : engine::Entity::EntityType::Collider);
+        }
         bool getIsDynamic() const { return isDynamic; }
         void setIsDynamic(bool dynamic) {
             if (dynamic && !isDynamic) {
