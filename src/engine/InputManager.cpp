@@ -1,4 +1,5 @@
 #include <engine/InputManager.h>
+#include <engine/SettingsManager.h>
 
 #include <limits>
 
@@ -111,10 +112,11 @@ void engine::InputManager::processInput(GLFWwindow* window) {
                 if (axis == GLFW_GAMEPAD_AXIS_RIGHT_X || axis == GLFW_GAMEPAD_AXIS_RIGHT_Y) {
                     if (std::abs(value) > 0.15f) {
                         int ww, wh;
+                        float sensitivity = renderer->getSettingsManager()->getSettings()->sensitivity;
                         glfwGetWindowSize(renderer->getWindow(), &ww, &wh);
                         fakeControllerCursor += glm::dvec2(
-                            (axis == GLFW_GAMEPAD_AXIS_RIGHT_X ? value : 0.0) * 10.0,
-                            (axis == GLFW_GAMEPAD_AXIS_RIGHT_Y ? value : 0.0) * 10.0
+                            (axis == GLFW_GAMEPAD_AXIS_RIGHT_X ? value : 0.0) * sensitivity,
+                            (axis == GLFW_GAMEPAD_AXIS_RIGHT_Y ? value : 0.0) * sensitivity
                         );
                         fakeControllerCursor = glm::clamp(fakeControllerCursor, glm::dvec2(0.0), glm::dvec2(ww, wh));
                     }

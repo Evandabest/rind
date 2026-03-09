@@ -1,4 +1,9 @@
 #include <engine/ShaderManager.h>
+#include <engine/Renderer.h>
+#include <engine/Camera.h>
+#include <engine/SettingsManager.h>
+#include <engine/ParticleManager.h>
+#include <engine/VolumetricManager.h>
 #include <engine/TextureManager.h>
 #include <engine/io.h>
 #include <engine/PushConstants.h>
@@ -656,7 +661,59 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                 .enableDepth = false,
                 .passInfo = lightingPass,
                 .colorAttachmentCount = 1,
+                .fillPushConstants = [](Renderer* renderer, GraphicsShader* shader, VkCommandBuffer cmd) {
+                    engine::Camera* camera = renderer->getEntityManager()->getCamera();
+                    if (camera) {
+                        uint32_t shadowSamples = pow(2, 1 + static_cast<int>(renderer->getSettingsManager()->getSettings()->shadowQuality));
+                        LightingPC pc = {
+                            .invView = camera->getInvViewMatrix(),
+                            .invProj = camera->getInvProjectionMatrix(),
+                            .camPos = camera->getWorldPosition(),
+                            .shadowSamples = shadowSamples
+                        };
+                        vkCmdPushConstants(
+                            cmd,
+                            shader->pipelineLayout,
+                            shader->config.pushConstantRange.stageFlags,
+                            0,
+                            sizeof(LightingPC),
+                            &pc
+                        );
+                    }
+                },
                 .inputBindings = {
+                    {
+                        0,
+                        .bufferProvider = [](Renderer* renderer, size_t i) -> VkDescriptorBufferInfo {
+                            EntityManager* entityManager = renderer->getEntityManager();
+                            auto& lightsBuffers = entityManager->getLightsBuffers();
+                            if (lightsBuffers.size() < renderer->getMaxFramesInFlight()) {
+                                entityManager->createLightsUBO();
+                            }
+                            if (i >= lightsBuffers.size() || lightsBuffers[i] == VK_NULL_HANDLE) {
+                                std::cout << "Warning: Lights UBO buffer missing for frame " << i << " after ensure. Skipping descriptor write.\n";
+                                return VkDescriptorBufferInfo{};
+                            }
+                            return VkDescriptorBufferInfo{lightsBuffers[i], 0, sizeof(LightsUBO)};
+                        },
+                        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                    },
+                    {
+                        1,
+                        .bufferProvider = [](Renderer* renderer, size_t i) -> VkDescriptorBufferInfo {
+                            EntityManager* entityManager = renderer->getEntityManager();
+                            auto& irradianceProbesBuffers = entityManager->getIrradianceProbesBuffers();
+                            if (irradianceProbesBuffers.size() < renderer->getMaxFramesInFlight()) {
+                                entityManager->createIrradianceProbesUBO();
+                            }
+                            if (i >= irradianceProbesBuffers.size() || irradianceProbesBuffers[i] == VK_NULL_HANDLE) {
+                                std::cout << "Warning: Irradiance UBO buffer missing for frame " << i << " after ensure. Skipping descriptor write.\n";
+                                return VkDescriptorBufferInfo{};
+                            }
+                            return VkDescriptorBufferInfo{irradianceProbesBuffers[i], 0, sizeof(IrradianceProbesUBO)};
+                        },
+                        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                    },
                     { 2, "gbuffer", "Albedo" },
                     { 3, "gbuffer", "Normal" },
                     { 4, "gbuffer", "Material" },
@@ -693,6 +750,25 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                 .enableDepth = false,
                 .passInfo = ssrPass,
                 .colorAttachmentCount = 1,
+                .fillPushConstants = [](Renderer* renderer, GraphicsShader* shader, VkCommandBuffer cmd) {
+                    engine::Camera* camera = renderer->getEntityManager()->getCamera();
+                    if (camera) {
+                        SSRPC pc = {
+                            .view = camera->getViewMatrix(),
+                            .proj = camera->getProjectionMatrix(),
+                            .invView = camera->getInvViewMatrix(),
+                            .invProj = camera->getInvProjectionMatrix()
+                        };
+                        vkCmdPushConstants(
+                            cmd,
+                            shader->pipelineLayout,
+                            shader->config.pushConstantRange.stageFlags,
+                            0,
+                            sizeof(SSRPC),
+                            &pc
+                        );
+                    }
+                },
                 .inputBindings = {
                     { 0, "lighting", "SceneColor" },
                     { 1, "gbuffer", "Depth" },
@@ -726,6 +802,28 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                 .enableDepth = false,
                 .passInfo = aoPass,
                 .colorAttachmentCount = 1,
+                .fillPushConstants = [](Renderer* renderer, GraphicsShader* shader, VkCommandBuffer cmd) {
+                    engine::Camera* camera = renderer->getEntityManager()->getCamera();
+                    if (camera) {
+                        glm::mat4 invProj = glm::inverse(camera->getProjectionMatrix());
+                        glm::mat4 proj = camera->getProjectionMatrix();
+                        glm::mat4 view = camera->getViewMatrix();
+                        AOPC pc = {
+                            .invProj = invProj,
+                            .proj = proj,
+                            .view = view,
+                            .flags = renderer->getSettingsManager()->getSettings()->aoMode
+                        };
+                        vkCmdPushConstants(
+                            cmd,
+                            shader->pipelineLayout,
+                            shader->config.pushConstantRange.stageFlags,
+                            0,
+                            sizeof(AOPC),
+                            &pc
+                        );
+                    }
+                },
                 .inputBindings = {
                     { 0, "gbuffer", "Depth" },
                     { 1, "gbuffer", "Normal" }
@@ -1071,6 +1169,21 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                 .passInfo = smaaEdgePass,
                 .blendEnable = false,
                 .colorAttachmentCount = 1,
+                .fillPushConstants = [](Renderer* renderer, GraphicsShader* shader, VkCommandBuffer cmd) {
+                    VkExtent2D swapChainExtent = renderer->getSwapChainExtent();
+                    CompositePC pc = {
+                        .inverseScreenSize = glm::vec2(1.0f / static_cast<float>(swapChainExtent.width), 1.0f / static_cast<float>(swapChainExtent.height)),
+                        .flags = renderer->getSettingsManager()->getSettings()->aaMode
+                    };
+                    vkCmdPushConstants(
+                        cmd,
+                        shader->pipelineLayout,
+                        shader->config.pushConstantRange.stageFlags,
+                        0,
+                        sizeof(CompositePC),
+                        &pc
+                    );
+                },
                 .inputBindings = {
                     { 0, "combine", "CombinedColor" }
                 }
@@ -1105,7 +1218,17 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                 .blendEnable = false,
                 .colorAttachmentCount = 1,
                 .inputBindings = {
-                    { 0, "smaaEdge", "SMAAEdgesColor" }
+                    { 0, "smaaEdge", "SMAAEdgesColor" },
+                    {
+                        1,
+                        .textureName = "smaa_area",
+                        .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                    },
+                    {
+                        2,
+                        .textureName = "smaa_search",
+                        .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                    }
                 }
             }
         };
@@ -1180,34 +1303,146 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
         shaders.push_back(shader);
     }
 
-    renderGraph.nodes.clear();
-    renderGraph.nodes.reserve(16);
-
-    auto pushNode = [&](bool is2D, PassInfo* pass, std::initializer_list<const char*> shaderList) {
-        RenderNode node;
-        node.is2D = is2D;
-        node.passInfo = pass;
-        for (auto name : shaderList) {
-            node.shaderNames.emplace_back(name);
+    renderGraph.nodes = {
+        {
+            .is2D = false,
+            .passInfo = gbufferPass.get(),
+            .shaderNames = { "gbuffer" },
+            .skipCondition = [](Renderer* renderer) {
+                auto hasRenderable3D = [&](auto& self, const std::vector<Entity*>& nodes) -> bool {
+                    for (const Entity* e : nodes) {
+                        const std::string& shaderName = e->getShader();
+                        const bool isGBufferShader = shaderName.empty() || shaderName == "gbuffer";
+                        if (e->getModel() && isGBufferShader) return true;
+                        if (self(self, e->getChildren())) return true;
+                    }
+                    return false;
+                };
+                return !hasRenderable3D(hasRenderable3D, renderer->getEntityManager()->getRootEntities());
+            }
+        },
+        {
+            .is2D = true,
+            .passInfo = particlePass.get(),
+            .shaderNames = { "particle" },
+            .customRenderFunc = [](Renderer* renderer, VkCommandBuffer cmd, uint32_t frame) {
+                renderer->getParticleManager()->renderParticles(cmd, frame);
+            }
+        },
+        {
+            .is2D = true,
+            .passInfo = volumetricPass.get(),
+            .shaderNames = { "volumetric" },
+            .customRenderFunc = [](Renderer* renderer, VkCommandBuffer cmd, uint32_t frame) {
+                renderer->getVolumetricManager()->renderVolumetrics(cmd, frame);
+            }
+        },
+        {
+            .is2D = true,
+            .passInfo = lightingPass.get(),
+            .shaderNames = { "lighting" },
+            .skipCondition = [](Renderer* renderer) {
+                auto hasRenderable3D = [&](auto& self, const std::vector<Entity*>& nodes) -> bool {
+                    for (const Entity* e : nodes) {
+                        const std::string& shaderName = e->getShader();
+                        const bool isGBufferShader = shaderName.empty() || shaderName == "gbuffer";
+                        if (e->getModel() && isGBufferShader) return true;
+                        if (self(self, e->getChildren())) return true;
+                    }
+                    return false;
+                };
+                return !hasRenderable3D(hasRenderable3D, renderer->getEntityManager()->getRootEntities());
+            }
+        },
+        {
+            .is2D = true,
+            .passInfo = ssrPass.get(),
+            .shaderNames = { "ssr" },
+            .skipCondition = [](Renderer* renderer) {
+                return !renderer->getSettingsManager()->getSettings()->ssrEnabled;
+            }
+        },
+        {
+            .is2D = true,
+            .passInfo = aoPass.get(),
+            .shaderNames = { "ao" }
+        },
+        {
+            .is2D = true,
+            .passInfo = bloomPass.get(),
+            .shaderNames = { "bloom" }
+        },
+        {
+            .is2D = true,
+            .passInfo = bloomBlurPassH.get(),
+            .shaderNames = { "hblur" }
+        },
+        {
+            .is2D = true,
+            .passInfo = bloomBlurPassV.get(),
+            .shaderNames = { "vblur" }
+        },
+        {
+            .is2D = true,
+            .passInfo = combinePass.get(),
+            .shaderNames = { "combine" }
+        },
+        {
+            .is2D = true,
+            .passInfo = smaaEdgePass.get(),
+            .shaderNames = { "smaaEdge" }
+        },
+        {
+            .is2D = true,
+            .passInfo = smaaWeightPass.get(),
+            .shaderNames = { "smaaWeight" }
+        },
+        {
+            .is2D = true,
+            .passInfo = smaaBlendPass.get(),
+            .shaderNames = { "smaaBlend" }
+        },
+        {
+            .is2D = true,
+            .passInfo = uiPass.get(),
+            .shaderNames = { "ui", "text" },
+            .customRenderFunc = [this](Renderer* renderer, VkCommandBuffer cmd, uint32_t frame) {
+                if (renderer->getSettingsManager()->getSettings()->showFPS) {
+                    if (!renderer->getFPSCounter()) {
+                        renderer->setFPSCounter(new TextObject(
+                            renderer->getUIManager(),
+                            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.4f, 0.4f, 1.0f)), glm::vec3(15.0f, -15.0f, 0.0f)),
+                            "fpsCounter",
+                            glm::vec4(1.0f),
+                            "0 FPS",
+                            "Lato",
+                            Corner::TopLeft
+                        ));
+                    }
+                    auto now = std::chrono::steady_clock::now();
+                    auto elapsed = std::chrono::duration<float>(now - renderer->getLastFPSUpdateTime()).count();
+                    if (elapsed >= 0.5f) {
+                        uint32_t averageFPS = static_cast<uint32_t>(static_cast<float>(renderer->getFPSFrameCount()) / elapsed);
+                        std::string fps = std::to_string(averageFPS) + " FPS";
+                        renderer->getFPSCounter()->setText(fps);
+                        renderer->setLastFPSUpdateTime(now);
+                        renderer->setFPSFrameCount(0);
+                    }
+                } else {
+                    if (renderer->getFPSCounter()) {
+                        renderer->getUIManager()->removeObject(renderer->getFPSCounter()->getName());
+                        renderer->setFPSCounter(nullptr);
+                    }
+                }
+                renderer->getUIManager()->renderUI(cmd, frame);
+            }
+        },
+        {
+            .is2D = true,
+            .passInfo = mainPass.get(),
+            .shaderNames = { "composite" }
         }
-        renderGraph.nodes.push_back(std::move(node));
     };
-
-    pushNode(false, gbufferPass.get(), { "gbuffer" });
-    pushNode(true, particlePass.get(), { "particle" });
-    pushNode(true, volumetricPass.get(), { "volumetric" });
-    pushNode(true, lightingPass.get(), { "lighting" });
-    pushNode(true, ssrPass.get(), { "ssr" });
-    pushNode(true, aoPass.get(), { "ao" });
-    pushNode(true, bloomPass.get(), { "bloom" });
-    pushNode(true, bloomBlurPassH.get(), { "hblur" });
-    pushNode(true, bloomBlurPassV.get(), { "vblur" });
-    pushNode(true, combinePass.get(), { "combine" });
-    pushNode(true, smaaEdgePass.get(), { "smaaEdge" });
-    pushNode(true, smaaWeightPass.get(), { "smaaWeight" });
-    pushNode(true, smaaBlendPass.get(), { "smaaBlend" });
-    pushNode(true, uiPass.get(), { "ui", "text" });
-    pushNode(true, mainPass.get(), { "composite" });
 
     return shaders;
 }

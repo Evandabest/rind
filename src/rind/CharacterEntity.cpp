@@ -1,4 +1,4 @@
-#include <engine/CharacterEntity.h>
+#include <rind/CharacterEntity.h>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/euler_angles.hpp>
 #include <engine/io.h>
@@ -10,7 +10,7 @@ static inline glm::mat4 applyWorldTranslation(const glm::mat4& transform, const 
     return result;
 }
 
-void engine::CharacterEntity::update(float deltaTime) {
+void rind::CharacterEntity::update(float deltaTime) {
     updateMovement(deltaTime);
     if (getWorldPosition().y < -30) {
         damage(health);
@@ -18,7 +18,7 @@ void engine::CharacterEntity::update(float deltaTime) {
     if (rotateVelocity != glm::vec3(0.0f)) rotateVelocity = glm::vec3(0.0f);
 }
 
-void engine::CharacterEntity::updateMovement(float deltaTime) {
+void rind::CharacterEntity::updateMovement(float deltaTime) {
     const float MAX_DELTA_TIME = 0.05f; // clamp deltaTime to avoid large jumps
     deltaTime = glm::min(deltaTime, MAX_DELTA_TIME);
     glm::vec3 desiredVel(0.0f);
@@ -84,7 +84,7 @@ void engine::CharacterEntity::updateMovement(float deltaTime) {
     for (uint32_t i = 0u; i < steps; ++i) {
         glm::vec3 vStep(0.0f, frameVelocity.y * subDt, 0.0f);
         if (std::abs(vStep.y) >= 1e-6f) {
-            Collider::Collision collision = willCollide(glm::translate(glm::mat4(1.0f), vStep));
+            engine::Collider::Collision collision = willCollide(glm::translate(glm::mat4(1.0f), vStep));
             if (collision.other) {
                 glm::vec3 mtv = collision.mtv.mtv;
                 if (glm::dot(mtv, vStep) > 0.0f) {
@@ -113,7 +113,7 @@ void engine::CharacterEntity::updateMovement(float deltaTime) {
         }
         glm::vec3 hStep(frameVelocity.x * subDt, 0.0f, frameVelocity.z * subDt);
         if (glm::length(hStep) > 1e-6f) {
-            Collider::Collision collision = willCollide(glm::translate(glm::mat4(1.0f), hStep));
+            engine::Collider::Collision collision = willCollide(glm::translate(glm::mat4(1.0f), hStep));
             if (collision.other) {
                 glm::vec3 mtv = collision.mtv.mtv;
                 if (glm::dot(mtv, hStep) > 0.0f) {
@@ -143,7 +143,7 @@ void engine::CharacterEntity::updateMovement(float deltaTime) {
             }
         }
     }
-    Collider::Collision postCollision = willCollide(glm::mat4(1.0f));
+    engine::Collider::Collision postCollision = willCollide(glm::mat4(1.0f));
     if (postCollision.other) {
         glm::vec3 mtv = postCollision.mtv.mtv;
         float penetration = postCollision.mtv.penetrationDepth;
@@ -163,7 +163,7 @@ void engine::CharacterEntity::updateMovement(float deltaTime) {
             }
         }
     }
-    size_t groundHits = Collider::raycast(
+    size_t groundHits = engine::Collider::raycast(
         getEntityManager(),
         getCollider()->getWorldPosition() + glm::vec3(0.0f, -collider->getHalfSize().y + 0.1f, 0.0f),
         glm::vec3(0.0f, -1.0f, 0.0f),
@@ -191,18 +191,18 @@ void engine::CharacterEntity::updateMovement(float deltaTime) {
     }
 }
 
-void engine::CharacterEntity::move(const glm::vec3& delta, bool remap) {
+void rind::CharacterEntity::move(const glm::vec3& delta, bool remap) {
     glm::vec3 remappedDelta = delta;
     if (remap) {
-        remapCoord(remappedDelta);
+        engine::remapCoord(remappedDelta);
     }
     pressed += remappedDelta;
 }
 
-void engine::CharacterEntity::stopMove(const glm::vec3& delta, bool remap) {
+void rind::CharacterEntity::stopMove(const glm::vec3& delta, bool remap) {
     glm::vec3 remappedDelta = delta;
     if (remap) {
-        remapCoord(remappedDelta);
+        engine::remapCoord(remappedDelta);
     }
     pressed -= remappedDelta;
     if (glm::length(pressed) < 1e-6f) {
@@ -210,18 +210,18 @@ void engine::CharacterEntity::stopMove(const glm::vec3& delta, bool remap) {
     }
 }
 
-void engine::CharacterEntity::dash(const glm::vec3& direction, float strength) {
+void rind::CharacterEntity::dash(const glm::vec3& direction, float strength) {
     dashing = glm::normalize(direction) * strength;
 }
 
-void engine::CharacterEntity::jump(float strength) {
+void rind::CharacterEntity::jump(float strength) {
     if (grounded || groundedTimer <= coyoteTime) {
         velocity.y = strength * jumpSpeed;
         grounded = false;
     }
 }
 
-void engine::CharacterEntity::rotate(const glm::vec3& delta) {
+void rind::CharacterEntity::rotate(const glm::vec3& delta) {
     if (delta.y != 0.0f) {
         glm::mat4 currentTransform = getTransform();
         glm::quat currentRotation = glm::quat_cast(currentTransform);
@@ -266,36 +266,36 @@ void engine::CharacterEntity::rotate(const glm::vec3& delta) {
     }
 }
 
-engine::Collider::Collision engine::CharacterEntity::willCollide(const glm::mat4& deltaTransform) {
+engine::Collider::Collision rind::CharacterEntity::willCollide(const glm::mat4& deltaTransform) {
     if (!collider) {
-        return Collider::Collision();
+        return engine::Collider::Collision();
     }
-    AABB myAABB = collider->getWorldAABB();
+    engine::AABB myAABB = collider->getWorldAABB();
     glm::vec3 delta = glm::vec3(deltaTransform[3]);
     if (glm::length(delta) > 1e-6f) {
         myAABB.min += delta;
         myAABB.max += delta;
     }
     const float margin = 0.1f;
-    AABB queryAABB = {
+    engine::AABB queryAABB = {
         myAABB.min - glm::vec3(margin),
         myAABB.max + glm::vec3(margin)
     };
-    static thread_local std::vector<Collider*> candidates;
+    static thread_local std::vector<engine::Collider*> candidates;
     getEntityManager()->getSpatialGrid().query(queryAABB, candidates);
     
-    Collider::Collision bestCollision;
+    engine::Collider::Collision bestCollision;
     float bestScore = -std::numeric_limits<float>::max();
     
-    for (Collider* otherCollider : candidates) {
+    for (engine::Collider* otherCollider : candidates) {
         if (otherCollider == collider || otherCollider->getIsTrigger()) {
             continue;
         }
-        AABB otherAABB = otherCollider->getWorldAABB();
-        if (!Collider::aabbIntersects(myAABB, otherAABB, 0.002f)) {
+        engine::AABB otherAABB = otherCollider->getWorldAABB();
+        if (!engine::Collider::aabbIntersects(myAABB, otherAABB, 0.002f)) {
             continue;
         }
-        Collider::Collision collision;
+        engine::Collider::Collision collision;
         if (collider->intersectsMTV(*otherCollider, collision.mtv, deltaTransform)) {
             collision.other = otherCollider;
             

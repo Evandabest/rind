@@ -13,7 +13,7 @@ rind::Enemy::Enemy(
     const std::string& name,
     const glm::mat4& transform,
     uint32_t& enemyCount
-) : engine::CharacterEntity(entityManager, name, "", transform, {}, engine::Entity::EntityType::Enemy), targetPlayer(player), enemyCount(enemyCount) {
+) : rind::CharacterEntity(entityManager, name, "", transform, {}, engine::Entity::EntityType::Enemy), targetPlayer(player), enemyCount(enemyCount) {
         if (player == nullptr) {
             throw std::runtime_error("Enemy spawned without player reference");
         }
@@ -112,7 +112,7 @@ void rind::Enemy::shoot() {
 }
 
 void rind::Enemy::update(float deltaTime) {
-    engine::CharacterEntity::update(deltaTime);
+    rind::CharacterEntity::update(deltaTime);
     if (trailFramesRemaining > 0) {
         float deltaTime = getEntityManager()->getRenderer()->getDeltaTime();
         glm::vec3 velocityOffset = getVelocity() * deltaTime;

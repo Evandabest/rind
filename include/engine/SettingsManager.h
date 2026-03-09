@@ -20,6 +20,7 @@ namespace engine {
             uint32_t aaMode = 1; // 0 = none, 1 = FXAA, 2 = SMAA
             float fpsLimit = 0.0f;
             float shadowQuality = 2.0f; // 0=512 2 samples, 1=1024 4 samples, 2=2048 8 samples, 3=2048 16 samples
+            float sensitivity = 1.0f;
             float masterVolume = 1.0f;
             bool ssrEnabled = true;
             bool showFPS = false;
@@ -54,11 +55,15 @@ namespace engine {
             float defaultFloat = 0.0f;
         };
 
-        SettingsManager(engine::Renderer* renderer, std::vector<SettingsDefinition> newDefs = {}) : renderer(renderer) {
-            renderer->registerSettingsManager(this);
-            addToDefs(std::move(newDefs));
-            loadSettings();
-        };
+        SettingsManager(
+            engine::Renderer* renderer,
+            std::vector<SettingsDefinition> newDefs = {},
+            const std::string& settingsLocation = "rind"
+        ) : renderer(renderer), settingsLocation(settingsLocation) {
+                renderer->registerSettingsManager(this);
+                addToDefs(std::move(newDefs));
+                loadSettings();
+            };
 
         ~SettingsManager() {
             cleanupTempStorage();
@@ -71,7 +76,7 @@ namespace engine {
 
         void loadSettings() {
             currentSettings = new Settings();
-            std::filesystem::path configPath = getConfigFilePath();
+            std::filesystem::path configPath = getConfigFilePath(settingsLocation);
             if (!std::filesystem::exists(configPath)) {
                 saveSettings();
                 return;
@@ -121,7 +126,7 @@ namespace engine {
         }
 
         void saveSettings() {
-            std::filesystem::path configPath = getConfigFilePath();
+            std::filesystem::path configPath = getConfigFilePath(settingsLocation);
             std::filesystem::path configDir = configPath.parent_path();
             if (!std::filesystem::exists(configDir)) {
                 std::filesystem::create_directories(configDir);
@@ -208,7 +213,7 @@ namespace engine {
             for (const SettingsDefinition& def : defs) {
                 settingsUIObject->addChild(new TextObject(
                     uiManager,
-                    glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.075f)), glm::vec3(450.0f, labelY, 0.0f)),
+                    glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.0675f)), glm::vec3(450.0f, labelY, 0.0f)),
                     def.key + "Label",
                     glm::vec4(1.0f),
                     def.label,
@@ -226,7 +231,7 @@ namespace engine {
                         }
                         settingsUIObject->addChild(new CheckboxObject(
                             uiManager,
-                            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.1f)), glm::vec3(-350.0f, labelY * 0.75f, 0.0f)),
+                            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.09f)), glm::vec3(-350.0f, labelY * 0.75f, 0.0f)),
                             def.key + "Checkbox",
                             glm::vec4(1.0f),
                             *tempRef,
@@ -243,7 +248,7 @@ namespace engine {
                         }
                         settingsUIObject->addChild(new TextObject(
                             uiManager,
-                            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.06f)), glm::vec3(-600, labelY * 1.25 - 350.0f, 0.0f)),
+                            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.054f)), glm::vec3(-600, labelY * 1.25 - 350.0f, 0.0f)),
                             def.key + "EnumLabel",
                             glm::vec4(1.0f),
                             enumOptionsLabel,
@@ -259,7 +264,7 @@ namespace engine {
                             bool* flag = new bool(currentVal == i);
                             CheckboxObject* checkbox = new CheckboxObject(
                                 uiManager,
-                                glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.1f)), glm::vec3(amountIn, labelY * 0.75f, 0.0f)),
+                                glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.09f)), glm::vec3(amountIn, labelY * 0.75f, 0.0f)),
                                 def.key + "Option" + std::to_string(i),
                                 glm::vec4(1.0f),
                                 *flag,
@@ -289,7 +294,7 @@ namespace engine {
                         }
                         SliderObject* slider = new SliderObject(
                             uiManager,
-                            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.4f, 0.14f, 1.0f)), glm::vec3(-100.0f, labelY * 0.55f, 0.0f)),
+                            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.4f, 0.126f, 1.0f)), glm::vec3(-100.0f, labelY * 0.55f, 0.0f)),
                             def.key + "Slider",
                             def.minVal,
                             def.maxVal,
@@ -303,7 +308,7 @@ namespace engine {
                         break;
                     }
                 };
-                labelY -= (def.type == SettingsDefinition::Enum) ? 700.0f : 600.0f;
+                labelY -= (def.type == SettingsDefinition::Enum) ? 630.0f : 540.0f;
             }
 
             // Apply Button
@@ -376,6 +381,7 @@ namespace engine {
         UIObject* settingsUIObject = nullptr;
 
         std::function<void()> onCloseCallback;
+        std::string settingsLocation;
 
         struct EnumState {
             std::vector<bool*> flags;
@@ -402,6 +408,7 @@ namespace engine {
             { SettingsDefinition::Bool, "Enable Screen Space Reflections", "ssrEnabled", &Settings::ssrEnabled },
             { SettingsDefinition::Enum, "Ambient Occlusion Mode", "aoMode", nullptr, &Settings::aoMode, {"Disabled", "SSAO", "GTAO"} },
             { SettingsDefinition::Enum, "Anti-Aliasing Mode", "aaMode", nullptr, &Settings::aaMode, {"Disabled", "FXAA", "SMAA"} },
+            { SettingsDefinition::Slider, "Sensitivity", "sensitivity", nullptr, nullptr, {}, &Settings::sensitivity, 0.0f, 0.05f, "", true, 10000.0f, false, 0.0f, 0.0f },
             { SettingsDefinition::Slider, "Master Volume", "masterVolume", nullptr, nullptr, {}, &Settings::masterVolume, 0.0f, 1.0f, "%", true, 100.0f, false, 0.0f, 0.0f },
             { SettingsDefinition::Slider, "FPS Limit", "fpsLimit", nullptr, nullptr, {}, &Settings::fpsLimit, 0.0f, 240.0f, " FPS", true, 1.0f, true, 0.0f, 240.0f,
                 [](Settings* prev, Settings* curr, Renderer* renderer) {
@@ -419,36 +426,36 @@ namespace engine {
             }
         };
 
-        static std::filesystem::path getConfigFilePath() {
+        static std::filesystem::path getConfigFilePath(const std::string& location) {
             std::filesystem::path configDir;
 
 #if defined(_WIN32)
-            // Windows: %APPDATA%\rind\config.json
+            // Windows: %APPDATA%\{game}\config.json
             const char* appdata = std::getenv("APPDATA");
             if (appdata) {
-                configDir = std::filesystem::path(appdata) / "rind";
+                configDir = std::filesystem::path(appdata) / location;
             } else {
-                configDir = std::filesystem::path(".") / "rind";
+                configDir = std::filesystem::path(".") / location;
             }
 #elif defined(__APPLE__)
-            // macOS: ~/Library/Application Support/rind/config.json
+            // macOS: ~/Library/Application Support/{game}/config.json
             const char* home = std::getenv("HOME");
             if (home) {
-                configDir = std::filesystem::path(home) / "Library" / "Application Support" / "rind";
+                configDir = std::filesystem::path(home) / "Library" / "Application Support" / location;
             } else {
-                configDir = std::filesystem::path(".") / "rind";
+                configDir = std::filesystem::path(".") / location;
             }
 #else
-            // Linux/Unix: ~/.config/rind/config.json
+            // Linux/Unix: ~/.config/{game}/config.json
             const char* xdgConfig = std::getenv("XDG_CONFIG_HOME");
             if (xdgConfig) {
-                configDir = std::filesystem::path(xdgConfig) / "rind";
+                configDir = std::filesystem::path(xdgConfig) / location;
             } else {
                 const char* home = std::getenv("HOME");
                 if (home) {
-                    configDir = std::filesystem::path(home) / ".config" / "rind";
+                    configDir = std::filesystem::path(home) / ".config" / location;
                 } else {
-                    configDir = std::filesystem::path(".") / "rind";
+                    configDir = std::filesystem::path(".") / location;
                 }
             }
 #endif

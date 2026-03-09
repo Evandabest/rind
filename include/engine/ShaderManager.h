@@ -119,6 +119,9 @@ namespace engine {
                 uint32_t binding;
                 std::string sourceShaderName;
                 std::string attachmentName;
+                std::string textureName;
+                std::function<VkDescriptorBufferInfo(engine::Renderer*, size_t frame)> bufferProvider;
+                VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
             };
             std::vector<InputBinding> inputBindings;
 
@@ -129,6 +132,7 @@ namespace engine {
                 pushConstantRange.size = sizeof(T);
                 pushConstantType = std::type_index(typeid(T));
             }
+            std::function<void(engine::Renderer*, GraphicsShader*, VkCommandBuffer)> fillPushConstants = nullptr;
             
             std::function<void(std::vector<VkVertexInputBindingDescription>&, std::vector<VkVertexInputAttributeDescription>&)> getVertexInputDescriptions = nullptr;
         } config;
@@ -170,6 +174,7 @@ namespace engine {
                 pushConstantRange.size = sizeof(T);
                 pushConstantType = std::type_index(typeid(T));
             }
+            std::function<void(engine::Renderer*, ComputeShader*, VkCommandBuffer)> fillPushConstants = nullptr;
         } config;
 
         VkPipeline pipeline{};
@@ -207,6 +212,8 @@ namespace engine {
         PassInfo* passInfo = nullptr;
         std::unordered_set<GraphicsShader*> shaders;
         std::vector<std::string> shaderNames;
+        std::function<void(Renderer*, VkCommandBuffer, uint32_t)> customRenderFunc = nullptr;
+        std::function<bool(Renderer*)> skipCondition = nullptr;
     };
     struct RenderGraph {
         std::vector<RenderNode> nodes;

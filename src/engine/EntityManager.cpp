@@ -816,7 +816,7 @@ void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, Render
     auto drawEntity = [&](auto& self, Entity* entity) -> void {
         ShaderManager* shaderManager = renderer->getShaderManager();
         Model* model = entity->getModel();
-        GraphicsShader* shader = shaderManager->getGraphicsShader(entity->getShader());
+        GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("gbuffer");
         if (model && shader && shaders.find(shader) != shaders.end()
             && camera->isAABBInFrustum(model->getAABB(), entity->getWorldTransform())
         ) {
@@ -834,34 +834,18 @@ void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, Render
                 vkCmdBindVertexBuffers(commandBuffer, 1, 1, dummyBuffers, offsets);
             }
             
-            std::type_index type = shader->config.pushConstantType;
-            if (type == std::type_index(typeid(GBufferPC))) {
-                if (camera) {
-                    GBufferPC pc = {
-                        .model = entity->getWorldTransform(),
-                        .view = camera->getViewMatrix(),
-                        .projection = camera->getProjectionMatrix(),
-                        .camPos = camera->getWorldPosition(),
-                        .flags = model->hasSkinning() ? 1u : 0u
-                    };
-                    vkCmdPushConstants(commandBuffer, shader->pipelineLayout, shader->config.pushConstantRange.stageFlags, 0, sizeof(GBufferPC), &pc);
-                }
-            } else if (type == std::type_index(typeid(LightingPC))) {
-                if (camera) {
-                    LightingPC pc = {
-                        .invView = camera->getInvViewMatrix(),
-                        .invProj = camera->getInvProjectionMatrix(),
-                        .camPos = camera->getWorldPosition()
-                    };
-                    vkCmdPushConstants(commandBuffer, shader->pipelineLayout, shader->config.pushConstantRange.stageFlags, 0, sizeof(LightingPC), &pc);
-                }
-            } else if (type == std::type_index(typeid(UIPC))) {
-                UIPC pc = {
+            if (shader->config.fillPushConstants) {
+                shader->config.fillPushConstants(renderer, shader, commandBuffer);
+            }
+            if (camera) {
+                GBufferPC pc = {
                     .model = entity->getWorldTransform(),
-                    .tint = glm::vec4(1.0f),
-                    .uvClip = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)
+                    .view = camera->getViewMatrix(),
+                    .projection = camera->getProjectionMatrix(),
+                    .camPos = camera->getWorldPosition(),
+                    .flags = model->hasSkinning() ? 1u : 0u
                 };
-                vkCmdPushConstants(commandBuffer, shader->pipelineLayout, shader->config.pushConstantRange.stageFlags, 0, sizeof(UIPC), &pc);
+                vkCmdPushConstants(commandBuffer, shader->pipelineLayout, shader->config.pushConstantRange.stageFlags, 0, sizeof(GBufferPC), &pc);
             }
             const std::vector<VkDescriptorSet>& descriptorSets = entity->getDescriptorSets();
             if (!descriptorSets.empty()) {

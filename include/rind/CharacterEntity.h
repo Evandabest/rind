@@ -4,11 +4,17 @@
 #include <engine/Collider.h>
 #include <engine/AudioManager.h>
 
-namespace engine {
-    class CharacterEntity : public Entity {
+namespace rind {
+    class CharacterEntity : public engine::Entity {
     public:
-        CharacterEntity(EntityManager* entityManager, const std::string& name, std::string shader, const glm::mat4& transform, std::vector<std::string> textures = {}, Entity::EntityType type = Entity::EntityType::Character)
-            : Entity(entityManager, name, shader, transform, textures, true, type) {}
+        CharacterEntity(
+            engine::EntityManager* entityManager,
+            const std::string& name,
+            const std::string& shader,
+            const glm::mat4& transform,
+            std::vector<std::string> textures = {},
+            const engine::Entity::EntityType& type = Entity::EntityType::Character
+        ) : Entity(entityManager, name, shader, transform, textures, true, type) {}
         
         void update(float deltaTime) override;
         void updateMovement(float deltaTime);
@@ -30,15 +36,15 @@ namespace engine {
         void setVelocity(const glm::vec3& velocity) { this->velocity = velocity; }
         void setGravityEnabled(bool enabled) { gravity = enabled ? 9.81f : 0.0f; }
 
-        void setCollider(OBBCollider* collider) { this->collider = collider; }
-        OBBCollider* getCollider() const { return collider; }
+        void setCollider(engine::OBBCollider* collider) { this->collider = collider; }
+        engine::OBBCollider* getCollider() const { return collider; }
 
         void setHead(Entity* head) { this->head = head; }
         Entity* getHead() const { return head; }
 
         const glm::vec3& getRotateVelocity() const { return rotateVelocity; }
 
-        Collider::Collision willCollide(const glm::mat4& deltaTransform);
+        engine::Collider::Collision willCollide(const glm::mat4& deltaTransform);
         bool isGrounded() const { return grounded || groundedTimer <= coyoteTime; }
 
     private:
@@ -48,8 +54,8 @@ namespace engine {
         glm::vec3 pressed = glm::vec3(0.0f);
         glm::vec3 dashing = glm::vec3(0.0f);
         glm::vec3 dashVelocity = glm::vec3(0.0f); // persistent dash impulse that decays
-        OBBCollider* collider = nullptr;
-        Entity* head = nullptr;
+        engine::OBBCollider* collider = nullptr;
+        engine::Entity* head = nullptr;
         const float moveSpeed = 10.0f;
         const float dashDecayRate = 8.0f; // how fast dash velocity decays
         const float jumpSpeed = 1.5f;

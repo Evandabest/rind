@@ -331,7 +331,7 @@ namespace engine {
         UIObject* getObject(const std::string& name);
         TextObject* getTextObject(const std::string& name);
         std::unordered_map<std::string, std::variant<UIObject*, TextObject*>>& getObjects() { return objects; }
-        void renderUI(VkCommandBuffer commandBuffer, RenderNode& node, uint32_t frameIndex);
+        void renderUI(VkCommandBuffer commandBuffer, uint32_t frameIndex);
         void clear();
         void loadTextures();
         void loadFonts();

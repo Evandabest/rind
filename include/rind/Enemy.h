@@ -1,6 +1,6 @@
 #pragma once
 
-#include <engine/CharacterEntity.h>
+#include <rind/CharacterEntity.h>
 #include <engine/AudioManager.h>
 #include <engine/ParticleManager.h>
 #include <engine/VolumetricManager.h>
@@ -14,7 +14,7 @@ namespace rind {
         Chasing,
         Attacking
     };
-    class Enemy : public engine::CharacterEntity {
+    class Enemy : public CharacterEntity {
     public:
         Enemy(
             engine::EntityManager* entityManager,

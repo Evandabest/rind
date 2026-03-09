@@ -15,7 +15,7 @@ rind::Player::Player(
     engine::InputManager* inputManager,
     const std::string& name,
     const glm::mat4& transform
-) : engine::CharacterEntity(entityManager, name, "", transform, {}, engine::Entity::EntityType::Player), inputManager(inputManager) {
+) : rind::CharacterEntity(entityManager, name, "", transform, {}, engine::Entity::EntityType::Player), inputManager(inputManager) {
         engine::Entity* head = new engine::Entity(
             entityManager,
             "playerHead",
@@ -238,7 +238,7 @@ void rind::Player::update(float deltaTime) {
             playerShadow->playAnimation("Idle", true, 1.0f);
         }
     }
-    engine::CharacterEntity::update(deltaTime);
+    rind::CharacterEntity::update(deltaTime);
     if (currentGunRotOffset != glm::vec3(0.0f)) {
         currentGunRotOffset -= currentGunRotOffset * deltaTime * 8.0f;
     }
@@ -529,8 +529,9 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
             }
         } else if (event.type == engine::InputEvent::Type::MouseMove) {
             if (inputManager->getCursorLocked()) {
-                float xOffset = static_cast<float>(event.mouseMoveEvent.xPos) * mouseSensitivity;
-                float yOffset = static_cast<float>(event.mouseMoveEvent.yPos) * mouseSensitivity;
+                float sensitivity = renderer->getSettingsManager()->getSettings()->sensitivity;
+                float xOffset = static_cast<float>(event.mouseMoveEvent.xPos) * sensitivity;
+                float yOffset = static_cast<float>(event.mouseMoveEvent.yPos) * sensitivity;
                 rotate(glm::vec3(0.0f, -xOffset, -yOffset));
             }
         } else if (event.type == engine::InputEvent::Type::MouseButtonPress && !renderer->isPaused()) {
@@ -600,12 +601,14 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                     break;
                 case GLFW_GAMEPAD_AXIS_RIGHT_X:
                     if (std::abs(event.gamepadAxisEvent.value) > 0.2f) {
-                        rotate(glm::vec3(0.0f, -event.gamepadAxisEvent.value * mouseSensitivity * 10.0f, 0.0f));
+                        float sensitivity = renderer->getSettingsManager()->getSettings()->sensitivity;
+                        rotate(glm::vec3(0.0f, -event.gamepadAxisEvent.value * sensitivity, 0.0f));
                     }
                     break;
                 case GLFW_GAMEPAD_AXIS_RIGHT_Y:
                     if (std::abs(event.gamepadAxisEvent.value) > 0.2f) {
-                        rotate(glm::vec3(0.0f, 0.0f, -event.gamepadAxisEvent.value * mouseSensitivity * 10.0f));
+                        float sensitivity = renderer->getSettingsManager()->getSettings()->sensitivity;
+                        rotate(glm::vec3(0.0f, 0.0f, -event.gamepadAxisEvent.value * sensitivity));
                     }
                     break;
                 case GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER:

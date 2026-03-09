@@ -348,25 +348,8 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
             passName == "SMAAWeightPass" || passName == "SMAABlendPass")) {
             continue;
         }
-        const bool skip3DDraw = !node.is2D && !has3DContent;
-        const bool isGBufferPass = node.passInfo && node.passInfo->name == "GBuffer";
-        if (isGBufferPass && skip3DDraw) {
-            // mark GBuffer as produced even when we only clear attachments for UI-only frames
-            gbufferRendered = true;
-        }
         std::vector<VkImageMemoryBarrier2> preBarriers;
         std::vector<VkImageMemoryBarrier2> postBarriers;
-
-        if (DEBUG_RENDER_LOGS) {
-            std::cout << "[record] nodeIdx=" << nodeIdx
-                      << " pass=" << node.passInfo->name
-                      << " is2D=" << node.is2D
-                      << " skip3D=" << skip3DDraw
-                      << " isGBuffer=" << isGBufferPass
-                      << " gbufferRendered=" << gbufferRendered
-                      << std::endl;
-        }
-
 
         if (node.passInfo->usesSwapchain) {
             VkImageLayout currentLayout = swapChainImageLayouts.at(imageIndex);
@@ -575,7 +558,6 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
         };
         vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-        const bool skipLightingWork = (node.passInfo && node.passInfo->name == "LightingPass" && !has3DContent);
 
         const bool passIsInactive = node.passInfo && !node.passInfo->isActive;
 
@@ -583,82 +565,26 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
             if (DEBUG_RENDER_LOGS) {
                 std::cout << "[record] pass " << node.passInfo->name << " is inactive, skipping draw (attachments cleared by loadOp)" << std::endl;
             }
-        } else if (node.shaders.find(shaderManager->getGraphicsShader("particle")) != node.shaders.end()) {
+        } else if (node.skipCondition(this)) {
             if (DEBUG_RENDER_LOGS) {
-                std::cout << "[record] rendering Particles" << std::endl;
+                std::cout << "[record] Skipping pass" << std::endl;
             }
-            particleManager->renderParticles(commandBuffer, currentFrame);
-        } else if (node.shaders.find(shaderManager->getGraphicsShader("volumetric")) != node.shaders.end()) {
+            continue;
+        } else if (node.customRenderFunc) {
             if (DEBUG_RENDER_LOGS) {
-                std::cout << "[record] rendering Volumetrics" << std::endl;
+                std::cout << "[record] executing custom render function for pass" << std::endl;
             }
-            volumetricManager->renderVolumetrics(commandBuffer, currentFrame);
-        } else if (node.is2D 
-        && (node.shaders.find(shaderManager->getGraphicsShader("ui")) != node.shaders.end()
-        || node.shaders.find(shaderManager->getGraphicsShader("text")) != node.shaders.end())
-        ) {
-            if (DEBUG_RENDER_LOGS) {
-                std::cout << "[record] rendering UI/Text pass" << std::endl;
-            }
-            if (settingsManager->getSettings()->showFPS) {
-                if (!fpsCounter) {
-                    fpsCounter = new TextObject(
-                        uiManager,
-                        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.4f, 0.4f, 1.0f)), glm::vec3(15.0f, -15.0f, 0.0f)),
-                        "fpsCounter",
-                        glm::vec4(1.0f),
-                        "0 FPS",
-                        "Lato",
-                        Corner::TopLeft
-                    );
-                }
-                auto now = std::chrono::steady_clock::now();
-                auto elapsed = std::chrono::duration<float>(now - lastFPSUpdateTime).count();
-                if (elapsed >= 0.5f) {
-                    uint32_t averageFPS = static_cast<uint32_t>(static_cast<float>(fpsFrameCount) / elapsed);
-                    std::string fps = std::to_string(averageFPS) + " FPS";
-                    fpsCounter->setText(fps);
-                    lastFPSUpdateTime = now;
-                    fpsFrameCount = 0;
-                }
-            } else {
-                if (fpsCounter) {
-                    uiManager->removeObject(fpsCounter->getName());
-                    fpsCounter = nullptr;
-                }
-            }
-            uiManager->renderUI(commandBuffer, node, currentFrame);
+            node.customRenderFunc(this, commandBuffer, currentFrame);
         } else if (node.is2D) {
-            if (skipLightingWork) {
-                if (DEBUG_RENDER_LOGS) {
-                    std::cout << "[record] skipping Lighting draw (UI-only frame)" << std::endl;
-                }
-                // no draw, attachments are cleared by loadOp.
-            } else if (node.shaders.find(shaderManager->getGraphicsShader("ssr")) != node.shaders.end() && !settingsManager->getSettings()->ssrEnabled) {
-                if (DEBUG_RENDER_LOGS) {
-                    std::cout << "[record] skipping SSR pass (disabled)" << std::endl;
-                }
-            } else {
-                if (DEBUG_RENDER_LOGS) {
-                    std::cout << "[record] rendering generic 2D pass" << std::endl;
-                }
-                draw2DPass(commandBuffer, node);
-            }
-        } else if (skip3DDraw) {
             if (DEBUG_RENDER_LOGS) {
-                std::cout << "[record] skipping 3D draw for pass" << std::endl;
+                std::cout << "[record] rendering generic 2D pass" << std::endl;
             }
+            draw2DPass(commandBuffer, node);
         } else {
             if (DEBUG_RENDER_LOGS) {
                 std::cout << "[record] rendering 3D entities" << std::endl;
             }
             entityManager->renderEntities(commandBuffer, node, currentFrame, DEBUG_RENDER_LOGS);
-        }
-        if (!skip3DDraw && isGBufferPass) {
-            gbufferRendered = true;
-            if (DEBUG_RENDER_LOGS) {
-                std::cout << "[record] gbufferRendered set true" << std::endl;
-            }
         }
         fpCmdEndRendering(commandBuffer);
 
@@ -710,79 +636,8 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
 void engine::Renderer::draw2DPass(VkCommandBuffer commandBuffer, RenderNode& node) {
     for (GraphicsShader* shader : node.shaders) {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipeline);
-        std::type_index type = shader->config.pushConstantType;
-        SettingsManager::Settings* settings = settingsManager->getSettings();
-        if (type == std::type_index(typeid(LightingPC))) {
-            Camera* camera = entityManager->getCamera();
-            if (camera) {
-                uint32_t shadowSamples = pow(2, 1 + static_cast<int>(settings->shadowQuality));
-                LightingPC pc = {
-                    .invView = camera->getInvViewMatrix(),
-                    .invProj = camera->getInvProjectionMatrix(),
-                    .camPos = camera->getWorldPosition(),
-                    .shadowSamples = shadowSamples
-                };
-                vkCmdPushConstants(
-                    commandBuffer,
-                    shader->pipelineLayout,
-                    shader->config.pushConstantRange.stageFlags,
-                    0,
-                    sizeof(LightingPC),
-                    &pc
-                );
-            }
-        } else if (type == std::type_index(typeid(SSRPC))) {
-            Camera* camera = entityManager->getCamera();
-            if (camera) {
-                SSRPC pc = {
-                    .view = camera->getViewMatrix(),
-                    .proj = camera->getProjectionMatrix(),
-                    .invView = camera->getInvViewMatrix(),
-                    .invProj = camera->getInvProjectionMatrix()
-                };
-                vkCmdPushConstants(
-                    commandBuffer,
-                    shader->pipelineLayout,
-                    shader->config.pushConstantRange.stageFlags,
-                    0,
-                    sizeof(SSRPC),
-                    &pc
-                );
-            }
-        } else if (type == std::type_index(typeid(AOPC))) {
-            Camera* camera = entityManager->getCamera();
-            if (camera) {
-                glm::mat4 invProj = glm::inverse(camera->getProjectionMatrix());
-                glm::mat4 proj = camera->getProjectionMatrix();
-                glm::mat4 view = camera->getViewMatrix();
-                AOPC pc = {
-                    .invProj = invProj,
-                    .proj = proj,
-                    .view = view,
-                    .flags = settings->aoMode
-                };
-                vkCmdPushConstants(
-                    commandBuffer,
-                    shader->pipelineLayout,
-                    shader->config.pushConstantRange.stageFlags,
-                    0,
-                    sizeof(AOPC),
-                    &pc
-                );
-            }
-        } else if (type == std::type_index(typeid(CompositePC))) {
-            CompositePC pc = {
-                .inverseScreenSize = glm::vec2(1.0f / static_cast<float>(swapChainExtent.width), 1.0f / static_cast<float>(swapChainExtent.height)),
-                .flags = settings->aaMode
-            };
-            vkCmdPushConstants(
-                commandBuffer,
-                shader->pipelineLayout,
-                shader->config.pushConstantRange.stageFlags,
-                0,
-                sizeof(CompositePC),
-                &pc
-            );
+        if (shader->config.fillPushConstants) {
+            shader->config.fillPushConstants(this, shader, commandBuffer);
         }
         if (!shader->descriptorSets.empty()) {
             const uint32_t dsIndex = std::min<uint32_t>(currentFrame, static_cast<uint32_t>(shader->descriptorSets.size() - 1));
@@ -2030,94 +1885,60 @@ void engine::Renderer::createPostProcessDescriptorSets() {
         std::vector<VkWriteDescriptorSet> descriptorWrites;
         std::vector<VkDescriptorBufferInfo> bufferInfos;
         size_t bufferInfoReserve = static_cast<size_t>(MAX_FRAMES_IN_FLIGHT * std::max(vertexBindings, 1));
-        if (shader->name == "lighting") {
-            bufferInfoReserve = MAX_FRAMES_IN_FLIGHT * 2;
+        size_t bufferBindingCount = 0;
+        for (const auto& b : shader->config.inputBindings) {
+            if (b.bufferProvider) bufferBindingCount++;
         }
+        bufferInfoReserve = MAX_FRAMES_IN_FLIGHT * std::max(vertexBindings + (int) bufferBindingCount, 1);
         bufferInfos.reserve(bufferInfoReserve);
         descriptorWrites.reserve(static_cast<size_t>(MAX_FRAMES_IN_FLIGHT * (vertexBindings + fragmentBindings + 2)));
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             std::vector<bool> fragmentBindingWritten(static_cast<size_t>(fragmentBindings), false);
-            if (shader->name == "lighting") {
-                auto& lightsBuffers = entityManager->getLightsBuffers();
-                if (lightsBuffers.size() < MAX_FRAMES_IN_FLIGHT) {
-                    entityManager->createLightsUBO();
-                }
-                auto& irradianceProbesBuffers = entityManager->getIrradianceProbesBuffers();
-                if (irradianceProbesBuffers.size() < MAX_FRAMES_IN_FLIGHT) {
-                    entityManager->createIrradianceProbesUBO();
-                }
-                if (i >= lightsBuffers.size() || lightsBuffers[i] == VK_NULL_HANDLE) {
-                    std::cout << "Warning: Lights UBO buffer missing for frame " << i << " after ensure. Skipping descriptor write.\n";
-                } else {
-                    bufferInfos.push_back({
-                        .buffer = lightsBuffers[i],
-                        .offset = 0,
-                        .range = sizeof(engine::LightsUBO)
-                    });
-                    descriptorWrites.push_back({
-                        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        .dstSet = shader->descriptorSets[i],
-                        .dstBinding = 0,
-                        .dstArrayElement = 0,
-                        .descriptorCount = 1,
-                        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                        .pBufferInfo = &bufferInfos.back()
-                    });
-                    bufferInfos.push_back({
-                        .buffer = irradianceProbesBuffers[i],
-                        .offset = 0,
-                        .range = sizeof(engine::IrradianceProbesUBO)
-                    });
-                    descriptorWrites.push_back({
-                        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        .dstSet = shader->descriptorSets[i],
-                        .dstBinding = 1,
-                        .dstArrayElement = 0,
-                        .descriptorCount = 1,
-                        .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                        .pBufferInfo = &bufferInfos.back()
-                    });
-                }
-            } else if (shader->name == "smaaWeight") {
-                Texture* areaImage = textureManager->getTexture("smaa_area");
-                Texture* searchImage = textureManager->getTexture("smaa_search");
-                if (areaImage && searchImage) {
-                    imageInfos.push_back({
-                        .sampler = VK_NULL_HANDLE,
-                        .imageView = areaImage->imageView,
-                        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                    });
-                    descriptorWrites.push_back({
-                        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        .dstSet = shader->descriptorSets[i],
-                        .dstBinding = 1,
-                        .dstArrayElement = 0,
-                        .descriptorCount = 1,
-                        .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                        .pImageInfo = &imageInfos.back()
-                    });
-                    fragmentBindingWritten[1] = true;
-                    imageInfos.push_back({
-                        .sampler = VK_NULL_HANDLE,
-                        .imageView = searchImage->imageView,
-                        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                    });
-                    descriptorWrites.push_back({
-                        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                        .dstSet = shader->descriptorSets[i],
-                        .dstBinding = 2,
-                        .dstArrayElement = 0,
-                        .descriptorCount = 1,
-                        .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                        .pImageInfo = &imageInfos.back()
-                    });
-                    fragmentBindingWritten[2] = true;
-                } else {
-                    std::cout << "Warning: SMAA area or search texture not found for SMAA weight shader.\n";
-                }
-            }
             VkSampler samplerToUse = shader->config.sampler ? shader->config.sampler : mainTextureSampler;
             for (const auto& binding : shader->config.inputBindings) {
+                if (binding.bufferProvider) {
+                    VkDescriptorBufferInfo info = binding.bufferProvider(this, i);
+                    if (info.buffer == VK_NULL_HANDLE) {
+                        continue;
+                    }
+                    bufferInfos.push_back(info);
+                    descriptorWrites.push_back({
+                        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        .dstSet = shader->descriptorSets[i],
+                        .dstBinding = binding.binding,
+                        .dstArrayElement = 0,
+                        .descriptorCount = 1,
+                        .descriptorType = binding.descriptorType,
+                        .pBufferInfo = &bufferInfos.back()
+                    });
+                    if (static_cast<int>(binding.binding) >= vertexBindings) {
+                        fragmentBindingWritten[binding.binding - vertexBindings] = true;
+                    }
+                    continue;
+                }
+                if (!binding.textureName.empty()) {
+                    Texture* tex = textureManager->getTexture(binding.textureName);
+                    if (!tex) {
+                        std::cout << "Warning: Texture '" << binding.textureName << "' not found for shader '" << shader->name << "'\n";
+                        continue;
+                    }
+                    imageInfos.push_back({
+                        .sampler = VK_NULL_HANDLE,
+                        .imageView = tex->imageView,
+                        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                    });
+                    descriptorWrites.push_back({
+                        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                        .dstSet = shader->descriptorSets[i],
+                        .dstBinding = binding.binding,
+                        .dstArrayElement = 0,
+                        .descriptorCount = 1,
+                        .descriptorType = binding.descriptorType,
+                        .pImageInfo = &imageInfos.back()
+                    });
+                    fragmentBindingWritten[binding.binding - vertexBindings] = true;
+                    continue;
+                }
                 auto sourceShader = shaderManager->getGraphicsShader(binding.sourceShaderName);
                 if (!sourceShader) {
                     std::cout << "Warning: Source shader '" << binding.sourceShaderName << "' for binding " << binding.binding << " in shader '" << shader->name << "' not found.\n";

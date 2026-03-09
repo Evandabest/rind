@@ -501,7 +501,7 @@ rind::GameInstance::GameInstance() {
                 .enumOptions = {"Easy", "Normal", "Hard"},
                 .extEnum = &difficulty,
             }
-        }
+        }, "rind"
     );
 }
 

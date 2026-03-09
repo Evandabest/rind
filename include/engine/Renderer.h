@@ -152,6 +152,12 @@ namespace engine {
         std::pair<VkBuffer, VkBuffer> getUIBuffers() const { return { uiVertexBuffer, uiIndexBuffer }; }
         UIObject* getHoveredObject() const { return hoveredObject; }
         int getMaxFramesInFlight() const { return MAX_FRAMES_IN_FLIGHT; }
+        TextObject* getFPSCounter() const { return fpsCounter; }
+        void setFPSCounter(TextObject* fpsCounter) { this->fpsCounter = fpsCounter; }
+        std::chrono::steady_clock::time_point getLastFPSUpdateTime() const { return lastFPSUpdateTime; }
+        void setLastFPSUpdateTime(std::chrono::steady_clock::time_point newTime) { lastFPSUpdateTime = newTime; }
+        uint32_t getFPSFrameCount() const { return fpsFrameCount; }
+        void setFPSFrameCount(uint32_t count) { fpsFrameCount = count; }
         VkSampler getMainTextureSampler() const { return mainTextureSampler; }
         VkSampler getNearestSampler() const { return nearestSampler; }
         void setHoveredObject(UIObject* obj) { hoveredObject = obj; }

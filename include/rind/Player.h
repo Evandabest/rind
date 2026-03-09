@@ -1,13 +1,13 @@
 #pragma once
 
-#include <engine/CharacterEntity.h>
+#include <rind/CharacterEntity.h>
 #include <engine/InputManager.h>
 #include <engine/Camera.h>
 #include <rind/ScoreCounter.h>
 #include <chrono>
 
 namespace rind {
-    class Player : public engine::CharacterEntity {
+    class Player : public CharacterEntity {
     public:
         Player(
             engine::EntityManager* entityManager,
@@ -54,7 +54,6 @@ namespace rind {
         engine::ParticleManager* particleManager = nullptr;
         engine::AudioManager* audioManager = nullptr;
         engine::VolumetricManager* volumetricManager = nullptr;
-        float mouseSensitivity = 0.003f;
 
         engine::UIObject* pauseUIObject = nullptr;
         engine::UIObject* healthbarObject = nullptr;

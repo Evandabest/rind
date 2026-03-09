@@ -646,8 +646,7 @@ engine::LayoutRect engine::UIManager::toPixelRect(const LayoutRect& designRect, 
     return LayoutRect{ pixelPosition, pixelSize };
 };
 
-void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node, uint32_t frameIndex) {
-    std::unordered_set<GraphicsShader*>& shaders = node.shaders;
+void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, uint32_t frameIndex) {
     const glm::vec2 swapExtentF = glm::vec2(renderer->getSwapChainExtent().width, renderer->getSwapChainExtent().height);
     float contentScale = 1.0f;
 #ifdef __APPLE__
@@ -670,9 +669,6 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node
     auto drawUIObject = [&](UIObject* object, const LayoutRect& rect) -> void {
         if (!object->isEnabled()) return;
         GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("ui");
-        if (shaders.find(shader) == shaders.end()) {
-            return;
-        }
         
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipeline);
         const auto& descriptorSets = object->getDescriptorSets();
@@ -704,9 +700,6 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, RenderNode& node
     auto drawTextObject = [&](TextObject* object, const LayoutRect& rect, const LayoutRect& pixelRect, const LayoutRect& parentRect) -> void {
         if (!object->isEnabled() || object->getText().empty()) return;
         GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("text");
-        if (shaders.find(shader) == shaders.end()) {
-            return;
-        }
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipeline);
 
         const auto& fontInfo = fonts[object->getFont()];
