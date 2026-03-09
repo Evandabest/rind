@@ -13,7 +13,6 @@
 #include <engine/Light.h>
 #include <engine/IrradianceProbe.h>
 #include <engine/io.h>
-#include <engine/PushConstants.h>
 #include <engine/AudioManager.h>
 #include <engine/SettingsManager.h>
 
@@ -22,7 +21,6 @@
 #include <iostream>
 #include <array>
 #include <set>
-#include <typeindex>
 #include <thread>
 #include <chrono>
 
@@ -303,18 +301,6 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
     }
     auto& renderGraph = shaderManager->getRenderGraph();
     const size_t nodeCount = renderGraph.size();
-    const auto& roots = entityManager->getRootEntities();
-    auto hasRenderable3D = [&](auto& self, const std::vector<Entity*>& nodes) -> bool {
-        for (const Entity* e : nodes) {
-            const std::string& shaderName = e->getShader();
-            const bool isGBufferShader = shaderName.empty() || shaderName == "gbuffer";
-            if (e->getModel() && isGBufferShader) return true;
-            if (self(self, e->getChildren())) return true;
-        }
-        return false;
-    };
-    const bool has3DContent = hasRenderable3D(hasRenderable3D, roots);
-    bool gbufferRendered = false;
 
     if (!paused) {
         entityManager->updateAll(deltaTime);
@@ -336,18 +322,12 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
     entityManager->updateLightsUBO(currentFrame);
     entityManager->updateIrradianceProbesUBO(currentFrame);
 
-    const bool smaaEnabled = settingsManager->getSettings()->aaMode == 2;
-
     for (size_t nodeIdx = 0; nodeIdx < nodeCount; ++nodeIdx) {
         auto& node = renderGraph[nodeIdx];
         if (!node.passInfo) {
             continue;
         }
-        const std::string& passName = node.passInfo->name;
-        if (!smaaEnabled && (passName == "SMAAEdgePass" || 
-            passName == "SMAAWeightPass" || passName == "SMAABlendPass")) {
-            continue;
-        }
+        const bool skipDraw = node.skipCondition && node.skipCondition(this);
         std::vector<VkImageMemoryBarrier2> preBarriers;
         std::vector<VkImageMemoryBarrier2> postBarriers;
 
@@ -561,15 +541,10 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
 
         const bool passIsInactive = node.passInfo && !node.passInfo->isActive;
 
-        if (passIsInactive) {
+        if (passIsInactive || skipDraw) {
             if (DEBUG_RENDER_LOGS) {
-                std::cout << "[record] pass " << node.passInfo->name << " is inactive, skipping draw (attachments cleared by loadOp)" << std::endl;
+                std::cout << "[record] pass " << node.passInfo->name << " skipping draw (inactive or skip condition)" << std::endl;
             }
-        } else if (node.skipCondition(this)) {
-            if (DEBUG_RENDER_LOGS) {
-                std::cout << "[record] Skipping pass" << std::endl;
-            }
-            continue;
         } else if (node.customRenderFunc) {
             if (DEBUG_RENDER_LOGS) {
                 std::cout << "[record] executing custom render function for pass" << std::endl;
@@ -580,11 +555,6 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
                 std::cout << "[record] rendering generic 2D pass" << std::endl;
             }
             draw2DPass(commandBuffer, node);
-        } else {
-            if (DEBUG_RENDER_LOGS) {
-                std::cout << "[record] rendering 3D entities" << std::endl;
-            }
-            entityManager->renderEntities(commandBuffer, node, currentFrame, DEBUG_RENDER_LOGS);
         }
         fpCmdEndRendering(commandBuffer);
 
@@ -1939,6 +1909,30 @@ void engine::Renderer::createPostProcessDescriptorSets() {
                     fragmentBindingWritten[binding.binding - vertexBindings] = true;
                     continue;
                 }
+                if (binding.imageArrayProvider) {
+                    const int fragIndex = static_cast<int>(binding.binding) - vertexBindings;
+                    uint32_t descriptorCount = 1;
+                    if (fragIndex >= 0 && fragIndex < fragmentBindings && !shader->config.fragmentDescriptorCounts.empty()) {
+                        descriptorCount = std::max(shader->config.fragmentDescriptorCounts[static_cast<size_t>(fragIndex)], 1u);
+                    }
+                    const size_t startIndex = imageInfos.size();
+                    binding.imageArrayProvider(this, i, descriptorCount, imageInfos);
+                    if (imageInfos.size() > startIndex) {
+                        descriptorWrites.push_back({
+                            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                            .dstSet = shader->descriptorSets[i],
+                            .dstBinding = binding.binding,
+                            .dstArrayElement = 0,
+                            .descriptorCount = static_cast<uint32_t>(imageInfos.size() - startIndex),
+                            .descriptorType = binding.descriptorType,
+                            .pImageInfo = &imageInfos[startIndex]
+                        });
+                        if (fragIndex >= 0 && fragIndex < fragmentBindings) {
+                            fragmentBindingWritten[static_cast<size_t>(fragIndex)] = true;
+                        }
+                    }
+                    continue;
+                }
                 auto sourceShader = shaderManager->getGraphicsShader(binding.sourceShaderName);
                 if (!sourceShader) {
                     std::cout << "Warning: Source shader '" << binding.sourceShaderName << "' for binding " << binding.binding << " in shader '" << shader->name << "' not found.\n";
@@ -2023,7 +2017,6 @@ void engine::Renderer::createPostProcessDescriptorSets() {
                               << std::endl;
                 }
             }
-            auto& lights = entityManager->getLights();
             samplerToUse = shader->config.sampler ? shader->config.sampler : mainTextureSampler;
             for (int frag = 0; frag < fragmentBindings; ++frag) {
                 if (fragmentBindingWritten[static_cast<size_t>(frag)]) continue;
@@ -2049,37 +2042,8 @@ void engine::Renderer::createPostProcessDescriptorSets() {
                 }
 
                 if (type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE || type == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER) {
-                    const bool isLightingShadowBinding = (shader->name == "lighting" && frag == shader->config.fragmentBitBindings - 2);
-                    
-                    if (isLightingShadowBinding) {
-                        Texture* fallbackTex = textureManager ? textureManager->getTexture("fallback_shadow_cube") : nullptr;
-                        VkImageView fallbackView = (fallbackTex && fallbackTex->imageView != VK_NULL_HANDLE) ? fallbackTex->imageView : VK_NULL_HANDLE;
-
-                        for (uint32_t c = 0; c < descriptorCount; ++c) {
-                            VkImageView viewToBind = fallbackView;
-                            if (c < lights.size()) {
-                                Light* light = lights[c];
-                                if (light && light->getShadowImageView() != VK_NULL_HANDLE) {
-                                    viewToBind = light->getShadowImageView();
-                                }
-                            }
-                            imageInfos.push_back({
-                                .sampler = VK_NULL_HANDLE,
-                                .imageView = viewToBind,
-                                .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                            });
-                        }
-                    } else {
-                        Texture* fallbackTex = nullptr;
-                        if (textureManager) {
-                            fallbackTex = textureManager->getTexture("materials_default_albedo");
-                        }
-                        if (!fallbackTex && textureManager) {
-                            fallbackTex = textureManager->getTexture("ui_window");
-                        }
-                        if (!fallbackTex && textureManager) {
-                            fallbackTex = textureManager->getTexture("fallback_white_2d");
-                        }
+                    {
+                        Texture* fallbackTex = textureManager ? textureManager->getTexture("fallback_white_2d") : nullptr;
                         if (!fallbackTex || fallbackTex->imageView == VK_NULL_HANDLE || fallbackTex->image == VK_NULL_HANDLE) {
                             std::cout << "Warning: No fallback texture available for shader '" << shader->name << "' binding " << (vertexBindings + frag) << ". Skipping descriptor write.\n";
                             continue;
@@ -2400,6 +2364,7 @@ void engine::Renderer::processInput(GLFWwindow* window) {
             } else if (renderer->getHoveredObject()->getType() == UIType::Checkbox) {
                 CheckboxObject* toggle = static_cast<CheckboxObject*>(renderer->getHoveredObject());
                 toggle->toggle();
+                renderer->clicking = true;
             }
         }
         if (renderer->getHoveredObject()->getType() == UIType::Slider) {

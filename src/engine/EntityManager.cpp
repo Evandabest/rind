@@ -788,9 +788,8 @@ void engine::EntityManager::processPendingDeletions() {
     pendingDeletions.clear();
 }
 
-void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, RenderNode& node, uint32_t currentFrame, bool DEBUG_RENDER_LOGS) {
+void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, uint32_t currentFrame, bool DEBUG_RENDER_LOGS) {
     std::vector<Entity*>& rootEntities = getRootEntities();
-    std::unordered_set<GraphicsShader*>& shaders = node.shaders;
     Camera* camera = getCamera();
     if (!camera) {
         std::cout << "Warning: No camera set in EntityManager. Skipping entity rendering.\n";
@@ -817,7 +816,7 @@ void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, Render
         ShaderManager* shaderManager = renderer->getShaderManager();
         Model* model = entity->getModel();
         GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("gbuffer");
-        if (model && shader && shaders.find(shader) != shaders.end()
+        if (model && shader
             && camera->isAABBInFrustum(model->getAABB(), entity->getWorldTransform())
         ) {
             updateJointMatricesUBO(entity);

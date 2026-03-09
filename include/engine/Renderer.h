@@ -152,8 +152,6 @@ namespace engine {
         std::pair<VkBuffer, VkBuffer> getUIBuffers() const { return { uiVertexBuffer, uiIndexBuffer }; }
         UIObject* getHoveredObject() const { return hoveredObject; }
         int getMaxFramesInFlight() const { return MAX_FRAMES_IN_FLIGHT; }
-        TextObject* getFPSCounter() const { return fpsCounter; }
-        void setFPSCounter(TextObject* fpsCounter) { this->fpsCounter = fpsCounter; }
         std::chrono::steady_clock::time_point getLastFPSUpdateTime() const { return lastFPSUpdateTime; }
         void setLastFPSUpdateTime(std::chrono::steady_clock::time_point newTime) { lastFPSUpdateTime = newTime; }
         uint32_t getFPSFrameCount() const { return fpsFrameCount; }

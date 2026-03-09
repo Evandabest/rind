@@ -121,6 +121,7 @@ namespace engine {
                 std::string attachmentName;
                 std::string textureName;
                 std::function<VkDescriptorBufferInfo(engine::Renderer*, size_t frame)> bufferProvider;
+                std::function<void(engine::Renderer*, size_t frame, uint32_t count, std::vector<VkDescriptorImageInfo>& imageInfos)> imageArrayProvider;
                 VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
             };
             std::vector<InputBinding> inputBindings;

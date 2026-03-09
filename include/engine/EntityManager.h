@@ -239,7 +239,7 @@ namespace engine {
         Renderer* getRenderer() const { return renderer; }
 
         void updateAll(float deltaTime);
-        void renderEntities(VkCommandBuffer commandBuffer, RenderNode& node, uint32_t currentFrame, bool DEBUG_RENDER_LOGS = false);
+        void renderEntities(VkCommandBuffer commandBuffer, uint32_t currentFrame, bool DEBUG_RENDER_LOGS = false);
 
         void markForDeletion(Entity* entity) {
             pendingDeletions.push_back(entity);

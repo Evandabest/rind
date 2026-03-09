@@ -1,6 +1,7 @@
 #include <engine/ShaderManager.h>
 #include <engine/Renderer.h>
 #include <engine/Camera.h>
+#include <engine/Light.h>
 #include <engine/SettingsManager.h>
 #include <engine/ParticleManager.h>
 #include <engine/VolumetricManager.h>
@@ -719,7 +720,31 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                     { 4, "gbuffer", "Material" },
                     { 5, "gbuffer", "Depth" },
                     { 6, "particle", "ParticleColor" },
-                    { 7, "volumetric", "VolumetricColor" }
+                    { 7, "volumetric", "VolumetricColor" },
+                    {
+                        8,
+                        .imageArrayProvider = [](Renderer* renderer, size_t frame, uint32_t count, std::vector<VkDescriptorImageInfo>& imageInfos) {
+                            auto* textureManager = renderer->getTextureManager();
+                            Texture* fallbackTex = textureManager ? textureManager->getTexture("fallback_shadow_cube") : nullptr;
+                            VkImageView fallbackView = (fallbackTex && fallbackTex->imageView != VK_NULL_HANDLE) ? fallbackTex->imageView : VK_NULL_HANDLE;
+                            auto& lights = renderer->getEntityManager()->getLights();
+                            for (uint32_t c = 0; c < count; ++c) {
+                                VkImageView viewToBind = fallbackView;
+                                if (c < lights.size()) {
+                                    Light* light = lights[c];
+                                    if (light && light->getShadowImageView() != VK_NULL_HANDLE) {
+                                        viewToBind = light->getShadowImageView();
+                                    }
+                                }
+                                imageInfos.push_back({
+                                    .sampler = VK_NULL_HANDLE,
+                                    .imageView = viewToBind,
+                                    .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                                });
+                            }
+                        },
+                        .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                    }
                 }
             }
         };
@@ -1217,6 +1242,14 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                 .passInfo = smaaWeightPass,
                 .blendEnable = false,
                 .colorAttachmentCount = 1,
+                .fillPushConstants = [](Renderer* renderer, GraphicsShader* shader, VkCommandBuffer cmd) {
+                    VkExtent2D swapChainExtent = renderer->getSwapChainExtent();
+                    CompositePC pc = {
+                        .inverseScreenSize = glm::vec2(1.0f / static_cast<float>(swapChainExtent.width), 1.0f / static_cast<float>(swapChainExtent.height)),
+                        .flags = renderer->getSettingsManager()->getSettings()->aaMode
+                    };
+                    vkCmdPushConstants(cmd, shader->pipelineLayout, shader->config.pushConstantRange.stageFlags, 0, sizeof(CompositePC), &pc);
+                },
                 .inputBindings = {
                     { 0, "smaaEdge", "SMAAEdgesColor" },
                     {
@@ -1259,6 +1292,14 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                 .passInfo = smaaBlendPass,
                 .blendEnable = false,
                 .colorAttachmentCount = 1,
+                .fillPushConstants = [](Renderer* renderer, GraphicsShader* shader, VkCommandBuffer cmd) {
+                    VkExtent2D swapChainExtent = renderer->getSwapChainExtent();
+                    CompositePC pc = {
+                        .inverseScreenSize = glm::vec2(1.0f / static_cast<float>(swapChainExtent.width), 1.0f / static_cast<float>(swapChainExtent.height)),
+                        .flags = renderer->getSettingsManager()->getSettings()->aaMode
+                    };
+                    vkCmdPushConstants(cmd, shader->pipelineLayout, shader->config.pushConstantRange.stageFlags, 0, sizeof(CompositePC), &pc);
+                },
                 .inputBindings = {
                     { 0, "combine", "CombinedColor" },
                     { 1, "smaaWeight", "SMAAWeightsColor" }
@@ -1292,6 +1333,14 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
                 .enableDepth = false,
                 .passInfo = mainPass,
                 .colorAttachmentCount = 1,
+                .fillPushConstants = [](Renderer* renderer, GraphicsShader* shader, VkCommandBuffer cmd) {
+                    VkExtent2D swapChainExtent = renderer->getSwapChainExtent();
+                    CompositePC pc = {
+                        .inverseScreenSize = glm::vec2(1.0f / static_cast<float>(swapChainExtent.width), 1.0f / static_cast<float>(swapChainExtent.height)),
+                        .flags = renderer->getSettingsManager()->getSettings()->aaMode
+                    };
+                    vkCmdPushConstants(cmd, shader->pipelineLayout, shader->config.pushConstantRange.stageFlags, 0, sizeof(CompositePC), &pc);
+                },
                 .inputBindings = {
                     { 0, "combine", "CombinedColor" },
                     { 1, "ui", "UIColor" },
@@ -1308,6 +1357,9 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
             .is2D = false,
             .passInfo = gbufferPass.get(),
             .shaderNames = { "gbuffer" },
+            .customRenderFunc = [](Renderer* renderer, VkCommandBuffer cmd, uint32_t frame) {
+                renderer->getEntityManager()->renderEntities(cmd, frame);
+            },
             .skipCondition = [](Renderer* renderer) {
                 auto hasRenderable3D = [&](auto& self, const std::vector<Entity*>& nodes) -> bool {
                     for (const Entity* e : nodes) {
@@ -1390,17 +1442,26 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
         {
             .is2D = true,
             .passInfo = smaaEdgePass.get(),
-            .shaderNames = { "smaaEdge" }
+            .shaderNames = { "smaaEdge" },
+            .skipCondition = [](Renderer* renderer) {
+                return renderer->getSettingsManager()->getSettings()->aaMode != 2;
+            }
         },
         {
             .is2D = true,
             .passInfo = smaaWeightPass.get(),
-            .shaderNames = { "smaaWeight" }
+            .shaderNames = { "smaaWeight" },
+            .skipCondition = [](Renderer* renderer) {
+                return renderer->getSettingsManager()->getSettings()->aaMode != 2;
+            }
         },
         {
             .is2D = true,
             .passInfo = smaaBlendPass.get(),
-            .shaderNames = { "smaaBlend" }
+            .shaderNames = { "smaaBlend" },
+            .skipCondition = [](Renderer* renderer) {
+                return renderer->getSettingsManager()->getSettings()->aaMode != 2;
+            }
         },
         {
             .is2D = true,
