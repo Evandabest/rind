@@ -10,8 +10,8 @@ Texture2D<float4> blurringTexture;
 [[vk::binding(1)]]
 SamplerState sampleSampler;
 
-static const int BLUR_RADIUS = 16;
-static const float SIGMA = 4.0;
+static const int BLUR_RADIUS = 8;
+static const float SIGMA = 2.0;
 static const float PI = 3.14159265359;
 
 float gaussian(float x, float sigma) {

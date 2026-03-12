@@ -319,7 +319,7 @@ void rind::Player::update(float deltaTime) {
             amount,
             1.5f,
             2.0f,
-            0.3f
+            0.2f
         );
         particleManager->burstParticles(
             getWorldTransform(),
@@ -328,7 +328,7 @@ void rind::Player::update(float deltaTime) {
             amount,
             1.0f,
             2.0f,
-            0.7f
+            0.4f
         );
         healUIShowTime -= deltaTime;
     }

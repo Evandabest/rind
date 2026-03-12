@@ -304,6 +304,7 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
         std::vector<PassImage> images;
         images.push_back({
             .name = "SceneColor",
+            .resolutionDivider = 2, // half
             .clearValue = { .color = { {0.0f, 0.0f, 0.0f, 0.0f} } },
             .format = VK_FORMAT_R16G16B16A16_SFLOAT,
             .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
@@ -341,6 +342,7 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
         std::vector<PassImage> images;
         images.push_back({
             .name = "VolumetricColor",
+            .resolutionDivider = 2, // half
             .clearValue = { .color = { {0.0f, 0.0f, 0.0f, 0.0f} } },
             .format = VK_FORMAT_R16G16B16A16_SFLOAT,
             .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
@@ -356,6 +358,7 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
         std::vector<PassImage> images;
         images.push_back({
             .name = "AOColor",
+            .resolutionDivider = 2, // half
             .clearValue = { .color = { {1.0f, 1.0f, 1.0f, 1.0f} } },
             .format = VK_FORMAT_R16_UNORM,
             .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
@@ -371,6 +374,7 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
         std::vector<PassImage> images;
         images.push_back({
             .name = "BloomColor",
+            .resolutionDivider = 3, // third
             .clearValue = { .color = { {0.0f, 0.0f, 0.0f, 0.0f} } },
             .format = VK_FORMAT_R16G16B16A16_SFLOAT,
             .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
@@ -378,7 +382,7 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
         bloomPass->images = images;
     }
 
-    // Bloom Blur Pass
+    // Bloom Blur Pass Horizontal
     auto bloomBlurPassH = std::make_shared<PassInfo>();
     bloomBlurPassH->name = "BloomBlurPassH";
     bloomBlurPassH->usesSwapchain = false;
@@ -386,11 +390,27 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
         std::vector<PassImage> images;
         images.push_back({
             .name = "BloomBlurHColor",
+            .resolutionDivider = 3, // third
             .clearValue = { .color = { {0.0f, 0.0f, 0.0f, 0.0f} } },
             .format = VK_FORMAT_R16G16B16A16_SFLOAT,
             .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
         });
         bloomBlurPassH->images = images;
+    }
+
+    // Bloom Blur Pass Vertical
+    auto bloomBlurPassV = std::make_shared<PassInfo>();
+    bloomBlurPassV->name = "BloomBlurPassV";
+    {
+        std::vector<PassImage> images;
+        images.push_back({
+            .name = "BloomBlurVColor",
+            .resolutionDivider = 3, // third
+            .clearValue = { .color = { {0.0f, 0.0f, 0.0f, 0.0f} } },
+            .format = VK_FORMAT_R16G16B16A16_SFLOAT,
+            .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+        });
+        bloomBlurPassV->images = images;
     }
 
     // Combine Pass
@@ -451,19 +471,6 @@ std::vector<engine::GraphicsShader> engine::ShaderManager::createDefaultShaders(
             .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
         });
         smaaBlendPass->images = images;
-    }
-
-    auto bloomBlurPassV = std::make_shared<PassInfo>();
-    bloomBlurPassV->name = "BloomBlurPassV";
-    {
-        std::vector<PassImage> images;
-        images.push_back({
-            .name = "BloomBlurVColor",
-            .clearValue = { .color = { {0.0f, 0.0f, 0.0f, 0.0f} } },
-            .format = VK_FORMAT_R16G16B16A16_SFLOAT,
-            .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-        });
-        bloomBlurPassV->images = images;
     }
 
     // UI Pass

@@ -311,10 +311,10 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
         entityManager->updateAll(deltaTime);
         audioManager->update();
         particleManager->updateAll(deltaTime);
-        particleManager->updateParticleBuffer(currentFrame);
         volumetricManager->updateAll(deltaTime);
-        volumetricManager->updateVolumetricBuffer(currentFrame);
     }
+    particleManager->updateParticleBuffer(currentFrame);
+    volumetricManager->updateVolumetricBuffer(currentFrame);
     if (entityManager->getCamera()) {
         Camera* cam = entityManager->getCamera();
         glm::vec3 pos = cam->getWorldPosition();
@@ -521,9 +521,10 @@ void engine::Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32
             renderingInfo.pDepthAttachment = node.passInfo->hasDepthAttachment ? &node.passInfo->depthAttachment.value() : nullptr;
             if (node.passInfo->images.has_value() && !node.passInfo->images->empty()) {
                 const auto& firstImage = (*node.passInfo->images)[0];
+                const uint32_t divider = firstImage.resolutionDivider > 0 ? firstImage.resolutionDivider : 1;
                 renderingInfo.renderArea.extent = {
-                    .width = firstImage.width == 0 ? swapChainExtent.width : firstImage.width,
-                    .height = firstImage.height == 0 ? swapChainExtent.height : firstImage.height
+                    .width = firstImage.width == 0 ? swapChainExtent.width / divider : firstImage.width,
+                    .height = firstImage.height == 0 ? swapChainExtent.height / divider : firstImage.height
                 };
             }
         }
@@ -1554,8 +1555,9 @@ void engine::Renderer::createAttachmentResources() {
         auto& images = renderPass.images.value();
         renderPass.colorAttachments.reserve(images.size());
         for (auto& image : images) {
-            const uint32_t width = image.width == 0 ? swapChainExtent.width : image.width;
-            const uint32_t height = image.height == 0 ? swapChainExtent.height : image.height;
+            const uint32_t divider = image.resolutionDivider > 0 ? image.resolutionDivider : 1;
+            const uint32_t width = image.width == 0 ? swapChainExtent.width / divider : image.width;
+            const uint32_t height = image.height == 0 ? swapChainExtent.height / divider : image.height;
             VkImage createdImage;
             VkDeviceMemory createdMemory;
             std::tie(createdImage, createdMemory) = createImage(

@@ -57,6 +57,8 @@ namespace engine {
         // 0 uses swapchain dimensions
         uint32_t width = 0;
         uint32_t height = 0;
+        // if == 0, divides swapchain dimensions (1 = full, 2 = half, etc.)
+        uint32_t resolutionDivider = 1;
 
         VkClearValue clearValue = {};
         uint32_t mipLevels = 1;
