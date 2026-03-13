@@ -24,6 +24,7 @@ namespace rind {
 
         void registerInput(const std::vector<engine::InputEvent>& events);
         void shoot();
+        void throwGrenade();
         void damage(float amount) override;
 
         void resizeHealthbar();
@@ -70,6 +71,9 @@ namespace rind {
         
         float shootingCooldown = 0.2f;
         std::chrono::steady_clock::time_point lastShotTime = std::chrono::steady_clock::now();
+
+        float grenadeCooldown = 4.0f;
+        std::chrono::steady_clock::time_point lastGrenadeTime = std::chrono::steady_clock::now();
         
         std::mt19937 rng{std::random_device{}()};
         std::uniform_real_distribution<float> dist{-1.0f, 1.0f};

@@ -84,10 +84,10 @@ void rind::SlowBullet::update(float deltaTime) {
             glm::translate(glm::mat4(1.0f), hitPoint),
             color,
             reflectedDir * 25.0f,
-            60,
+            100,
             4.0f,
             0.4f,
-            0.3f
+            0.4f
         );
         particleManager->burstParticles(
             glm::translate(glm::mat4(1.0f), hitPoint),
@@ -128,6 +128,7 @@ void rind::SlowBullet::update(float deltaTime) {
                 2.0f,
                 0.5f
             );
+            return;
         }
         float sizeFactor = dist(rng) * 0.2f + 0.4f; // 0.2 to 0.6
         float randomPhi = dist(rng) * 2.0f * PI;

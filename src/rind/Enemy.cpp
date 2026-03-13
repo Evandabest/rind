@@ -70,7 +70,7 @@ void rind::Enemy::shoot() {
             glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
             getTrailColor(),
             reflectedDir * 25.0f,
-            60,
+            100,
             4.0f,
             0.4f,
             0.3f
@@ -284,10 +284,10 @@ void rind::Enemy::damage(float amount) {
             glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
             getTrailColor(),
             glm::vec3(0.0f, 1.0f, 0.0f) * 12.0f,
-            100,
+            300,
             6.0f,
             2.0f,
-            0.3f
+            0.4f
         );
         rind::TempTrigger* triggerCollider = new rind::TempTrigger(
             getEntityManager(),

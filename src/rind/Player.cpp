@@ -6,6 +6,7 @@
 #include <engine/UIManager.h>
 #include <engine/SceneManager.h>
 #include <engine/SettingsManager.h>
+#include <rind/Grenade.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -533,6 +534,12 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                 case GLFW_KEY_D:
                     move(glm::vec3(0.0f, 0.0f, 1.0f));
                     break;
+                case GLFW_KEY_Q:
+                    if ((std::chrono::steady_clock::now() - lastGrenadeTime) >= std::chrono::duration<float>(grenadeCooldown)) {
+                        throwGrenade();
+                        lastGrenadeTime = std::chrono::steady_clock::now();
+                    }
+                    break;
                 case GLFW_KEY_SPACE:
                     if (isGrounded()) {
                         jump(8.0f);
@@ -635,6 +642,12 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                                 }
                             }
                         }
+                    }
+                    break;
+                case GLFW_GAMEPAD_BUTTON_LEFT_BUMPER:
+                    if ((std::chrono::steady_clock::now() - lastGrenadeTime) >= std::chrono::duration<float>(grenadeCooldown)) {
+                        throwGrenade();
+                        lastGrenadeTime = std::chrono::steady_clock::now();
                     }
                     break;
                 default:
@@ -793,7 +806,7 @@ void rind::Player::damage(float amount) {
         engine::SceneManager* sceneManager = getEntityManager()->getRenderer()->getSceneManager();
         engine::ButtonObject* quitButton = new engine::ButtonObject(
             uiManager,
-            glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -100.0f, 0.0f)), glm::vec3(0.15, 0.05, 1.0)),
+            glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -400.0f, 0.0f)), glm::vec3(0.15, 0.05, 1.0)),
             "deathMenuButton",
             glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
             glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
@@ -890,10 +903,10 @@ void rind::Player::shoot() {
             glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
             trailColor,
             reflectedDir * 25.0f,
-            60,
+            100,
             4.0f,
             0.4f,
-            0.3f
+            0.4f
         );
         particleManager->burstParticles(
             glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
@@ -933,4 +946,16 @@ void rind::Player::shoot() {
     audioManager->playSound3D("laser_shot", gunPos, 0.5f, 0.2F);
     trailFramesRemaining = maxTrailFrames;
     trailEndPos = endPos;
+}
+
+void rind::Player::throwGrenade() {
+    glm::vec3 forward = -glm::normalize(glm::vec3(camera->getWorldTransform()[2]));
+    glm::vec3 gunPos = glm::vec3(gunEndPosition->getWorldTransform()[3]);
+    Grenade* grenade = new Grenade(
+        getEntityManager(),
+        glm::translate(glm::mat4(1.0f), gunPos + forward * 0.5f),
+        forward * 20.0f + glm::vec3(0.0f, 3.0f, 0.0f),
+        trailColor,
+        6.0f
+    );
 }
