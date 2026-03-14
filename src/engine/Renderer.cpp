@@ -677,6 +677,15 @@ void engine::Renderer::draw2DPass(VkCommandBuffer commandBuffer, RenderNode& nod
         if (shader->config.fillPushConstants) {
             shader->config.fillPushConstants(this, shader, commandBuffer);
         }
+        const uint32_t requiredDescriptorBindings = static_cast<uint32_t>(
+            std::max(shader->config.vertexBitBindings, 0) + std::max(shader->config.fragmentBitBindings, 0)
+        );
+        if (requiredDescriptorBindings > 0 && shader->descriptorSets.empty()) {
+            if (DEBUG_RENDER_LOGS) {
+                std::cout << "[draw2DPass] shader=" << shader->name << " missing descriptor sets, skipping draw" << std::endl;
+            }
+            continue;
+        }
         if (!shader->descriptorSets.empty()) {
             const uint32_t dsIndex = std::min<uint32_t>(currentFrame, static_cast<uint32_t>(shader->descriptorSets.size() - 1));
             if (DEBUG_RENDER_LOGS) {
@@ -825,6 +834,7 @@ void engine::Renderer::createLogicalDevice() {
         .pQueueCreateInfos = queueCreateInfos.data()
     };
     VkPhysicalDeviceVulkan13Features enabledVulkan13Features = vulkan13Features;
+    enabledVulkan13Features.pNext = nullptr;
     VkPhysicalDeviceFeatures2 enabledFeatures2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         .pNext = &enabledVulkan13Features,
@@ -836,8 +846,8 @@ void engine::Renderer::createLogicalDevice() {
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
             .shaderBufferFloat32AtomicAdd = VK_TRUE
         };
-        enabledAtomicFloat.pNext = enabledFeatures2.pNext;
-        enabledFeatures2.pNext = &enabledAtomicFloat;
+        enabledAtomicFloat.pNext = nullptr;
+        enabledVulkan13Features.pNext = &enabledAtomicFloat;
     }
     createInfo.pNext = &enabledFeatures2;
     createInfo.pEnabledFeatures = nullptr;
@@ -2431,6 +2441,27 @@ int engine::Renderer::rateDeviceSuitability(VkPhysicalDevice device) {
     VkPhysicalDeviceFeatures deviceFeatures;
     vkGetPhysicalDeviceProperties(device, &deviceProperties);
     vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+    QueueFamilyIndices queueFamilies = findQueueFamilies(device);
+    if (!queueFamilies.isComplete()) {
+        return 0;
+    }
+
+    for (const char* requiredExtension : deviceExtensions) {
+        if (!hasDeviceExtension(device, requiredExtension)) {
+            return 0;
+        }
+    }
+
+    SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+    if (swapChainSupport.formats.empty() || swapChainSupport.presentModes.empty()) {
+        return 0;
+    }
+
+    if (deviceFeatures.samplerAnisotropy != VK_TRUE) {
+        return 0;
+    }
+
     int score = 0;
     if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
         score += 1000;

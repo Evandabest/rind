@@ -135,6 +135,7 @@ void engine::Light::bakeShadowMap(Renderer* renderer, VkCommandBuffer commandBuf
     );
     
     glm::vec3 lightPos = getWorldPosition();
+    VkBuffer dummySkinningBuffer = renderer->getEntityManager()->getDummySkinningBuffer();
     for (int i = 0; i < 6; ++i) {
         viewProjs[i] = shadowProj * glm::lookAt(lightPos, lightPos + faces[i].dir, faces[i].up);
     }
@@ -164,7 +165,27 @@ void engine::Light::bakeShadowMap(Renderer* renderer, VkCommandBuffer commandBuf
             VkBuffer vertexBuffers[] = { model->getVertexBuffer().first };
             VkDeviceSize offsets[] = { 0 };
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+            VkBuffer skinBuffers[] = { dummySkinningBuffer };
+            vkCmdBindVertexBuffers(commandBuffer, 1, 1, skinBuffers, offsets);
             vkCmdBindIndexBuffer(commandBuffer, model->getIndexBuffer().first, 0, VK_INDEX_TYPE_UINT32);
+            const auto& shadowDS = entity->getShadowDescriptorSets();
+            if (shadowDS.empty()) {
+                for (Entity* child : entity->getChildren()) {
+                    self(self, child, viewProj);
+                }
+                return;
+            }
+            const uint32_t dsIndex = 0;
+            vkCmdBindDescriptorSets(
+                commandBuffer,
+                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                shader->pipelineLayout,
+                0,
+                1,
+                &shadowDS[dsIndex],
+                0,
+                nullptr
+            );
             ShadowPC pc = {
                 .model = entity->getWorldTransform(),
                 .viewProj = viewProj,
@@ -345,19 +366,23 @@ void engine::Light::renderShadowMap(Renderer* renderer, VkCommandBuffer commandB
                 }
                 
                 const auto& shadowDS = entity->getShadowDescriptorSets();
-                if (!shadowDS.empty()) {
-                    const uint32_t dsIndex = std::min<uint32_t>(currentFrame, static_cast<uint32_t>(shadowDS.size() - 1));
-                    vkCmdBindDescriptorSets(
-                        commandBuffer,
-                        VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        shader->pipelineLayout,
-                        0,
-                        1,
-                        &shadowDS[dsIndex],
-                        0,
-                        nullptr
-                    );
+                if (shadowDS.empty()) {
+                    for (Entity* child : entity->getChildren()) {
+                        self(self, child, viewProj);
+                    }
+                    return;
                 }
+                const uint32_t dsIndex = std::min<uint32_t>(currentFrame, static_cast<uint32_t>(shadowDS.size() - 1));
+                vkCmdBindDescriptorSets(
+                    commandBuffer,
+                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    shader->pipelineLayout,
+                    0,
+                    1,
+                    &shadowDS[dsIndex],
+                    0,
+                    nullptr
+                );
                 
                 ShadowPC pc = {
                     .model = entity->getWorldTransform(),

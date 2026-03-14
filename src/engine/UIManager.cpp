@@ -38,6 +38,7 @@ engine::UIObject::~UIObject() {
     }
     if (!descriptorSets.empty()) {
         VkDevice device = uiManager->getRenderer()->getDevice();
+        vkDeviceWaitIdle(device);
         for (auto& descriptorSet : descriptorSets) {
             vkFreeDescriptorSets(device, uiManager->getRenderer()->getShaderManager()->getGraphicsShader("ui")->descriptorPool, 1, &descriptorSet);
         }
@@ -127,11 +128,15 @@ void engine::UIObject::loadTexture() {
     }
     std::vector<Texture*> textures = { texture };
     std::vector<VkBuffer> buffers;
+    std::vector<VkDescriptorSet> newDescriptorSets = shader->createDescriptorSets(renderer, textures, buffers);
     if (!descriptorSets.empty()) {
-        shader->updateDescriptorSets(renderer, descriptorSets, textures, buffers);
-    } else {
-        setDescriptorSets(shader->createDescriptorSets(renderer, textures, buffers));
+        vkDeviceWaitIdle(renderer->getDevice());
+        VkDevice device = renderer->getDevice();
+        for (auto& descriptorSet : descriptorSets) {
+            vkFreeDescriptorSets(device, shader->descriptorPool, 1, &descriptorSet);
+        }
     }
+    setDescriptorSets(std::move(newDescriptorSets));
 }
 
 engine::ButtonObject::ButtonObject(
