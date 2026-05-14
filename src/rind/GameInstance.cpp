@@ -1,5 +1,7 @@
 #include <rind/GameInstance.h>
 
+#include <cstdlib>
+
 #include <engine/Camera.h>
 #include <engine/LightManager.h>
 #include <engine/IrradianceManager.h>
@@ -61,12 +63,32 @@ rind::GameInstance::GameInstance() {
                 std::exit(0);
             }
         );
-        std::function<void()> settingsCallback = [renderer, logoObject, startButton, quitButton]() {
+        engine::ButtonObject* rickRollButton = new engine::ButtonObject(
+            uiManager,
+            glm::scale(glm::translate(glm::mat4(1.0), glm::vec3(0.0f, -250.0f, 0.0f)), glm::vec3(0.12, 0.04, 1.0)),
+            "RickRollButton",
+            glm::vec4(0.5f, 0.5f, 0.6f, 1.0f),
+            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+            "ui_window",
+            "???",
+            "Lato",
+            []() {
+#if defined(_WIN32)
+                std::system("start \"\" \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"");
+#elif defined(__APPLE__)
+                std::system("open \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"");
+#else
+                std::system("xdg-open \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"");
+#endif
+            }
+        );
+        std::function<void()> settingsCallback = [renderer, logoObject, startButton, quitButton, rickRollButton]() {
             renderer->getSettingsManager()->showSettingsUI();
             renderer->getUIManager()->removeObject(logoObject->getName());
             renderer->getUIManager()->removeObject(startButton->getName());
             renderer->getUIManager()->removeObjectDeferred("SettingsButton");
             renderer->getUIManager()->removeObject(quitButton->getName());
+            renderer->getUIManager()->removeObject(rickRollButton->getName());
             renderer->getSettingsManager()->setUIOnClose(
                 [renderer](){
                     renderer->getSceneManager()->setActiveSceneDeferred(0);
