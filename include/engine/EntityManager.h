@@ -12,8 +12,6 @@
 
 namespace engine {
     class Camera;
-    class Light;
-    class IrradianceProbe;
     class Collider;
     class Entity {
     public:
@@ -21,8 +19,6 @@ namespace engine {
             Generic,
             Camera,
             Static,
-            Light,
-            IrradianceProbe,
             Collider,
             Trigger,
             Empty,
@@ -53,7 +49,7 @@ namespace engine {
 
         virtual void update(float deltaTime) {}
 
-        void updateWorldTransform();
+        void updateWorldTransform(const glm::mat4& parentWorld);
 
         void addChild(Entity* child);
         void removeChild(Entity* child);
@@ -78,6 +74,7 @@ namespace engine {
         const std::string& getShader() const { return shader; }
 
         const std::vector<std::string>& getTextures() const { return textures; }
+        void setTextures(const std::vector<std::string>& textures);
         const std::vector<VkDescriptorSet>& getDescriptorSets() const { return descriptorSets; }
         void setDescriptorSets(const std::vector<VkDescriptorSet>& sets) { descriptorSets = sets; }
         const std::vector<VkDescriptorSet>& getShadowDescriptorSets() const { return shadowDescriptorSets; }
@@ -109,6 +106,8 @@ namespace engine {
         const std::vector<glm::mat4>& getJointMatrices() const { return jointMatrices; }
         bool isAnimated() const { return model && model->hasAnimations() && !animState.currentAnimation.empty(); }
         AnimationState& getAnimationState() { return animState; }
+        bool isVisible() const { return visible; }
+        void setVisible(bool visible) { this->visible = visible; }
 
         bool operator==(const Entity& other) const { return this == &other; }
 
@@ -142,6 +141,7 @@ namespace engine {
         std::vector<glm::mat4> globalTransforms;
 
         bool castShadow = true;
+        bool visible = true;
 
         std::vector<Entity*> children;
         Entity* parent = nullptr;
@@ -179,14 +179,14 @@ namespace engine {
             movableEntities.push_back(entity);
         }
         void removeMovableEntry(Entity* entity) {
-            movableEntities.erase(std::remove(movableEntities.begin(), movableEntities.end(), entity), movableEntities.end());
+            std::erase(movableEntities, entity);
         }
 
         void addRootEntry(Entity* entity) {
             rootEntities.push_back(entity);
         }
         void removeRootEntry(Entity* entity) {
-            rootEntities.erase(std::remove(rootEntities.begin(), rootEntities.end(), entity), rootEntities.end());
+            std::erase(rootEntities, entity);
         }
 
         Entity* getEntity(const std::string& name) const {
@@ -200,39 +200,16 @@ namespace engine {
         void setCamera(Camera* camera) { this->camera = camera; }
         Camera* getCamera() const { return camera; }
 
-        void addLight(Light* light) {
-            lights.push_back(light);
-        }
-        void addIrradianceProbe(IrradianceProbe* probe) {
-            irradianceProbes.push_back(probe);
-            irradianceBakingPending = true;
-        }
         void addCollider(Collider* collider);
         void removeCollider(Collider* collider);
         void addDynamicCollider(Collider* collider);
         void removeDynamicCollider(Collider* collider);
-        const std::vector<Light*>& getLights() const { return lights; }
-        const std::vector<IrradianceProbe*>& getIrradianceProbes() const { return irradianceProbes; }
-        void createLightsUBO();
-        void createIrradianceProbesUBO();
-        void updateLightsUBO(uint32_t frameIndex);
-        void updateIrradianceProbesUBO(uint32_t frameIndex);
-        std::vector<VkBuffer>& getLightsBuffers() { return lightsBuffers; }
-        std::vector<VkBuffer>& getIrradianceProbesBuffers() { return irradianceBuffers; }
+        
         std::vector<Collider*>& getColliders() { return colliders; }
         std::vector<Collider*>& getDynamicColliders() { return dynamicColliders; }
         SpatialGrid& getSpatialGrid() { return spatialGrid; }
         void rebuildSpatialGrid();
         void updateDynamicColliders();
-        void createAllShadowMaps();
-        void createAllIrradianceMaps();
-        void renderShadows(VkCommandBuffer commandBuffer, uint32_t currentFrame);
-        void renderDynamicIrradiance(VkCommandBuffer commandBuffer, uint32_t currentFrame);
-        void bakeIrradianceMaps(VkCommandBuffer commandBuffer);
-        void recordIrradianceReadback(VkCommandBuffer commandBuffer);
-        void processIrradianceSH();
-        bool needsIrradianceBaking() const { return irradianceBakingPending; }
-        void setIrradianceBakingPending(bool pending) { irradianceBakingPending = pending; }
         void markTexturesDirty() { textureLoadDirty = true; }
         VkBuffer getDummySkinningBuffer() const { return dummySkinningBuffer; }
 
@@ -255,23 +232,13 @@ namespace engine {
         std::vector<Entity*> movableEntities;
         std::vector<Collider*> colliders;
         std::vector<Collider*> dynamicColliders;
-        std::vector<Light*> lights;
-        std::vector<IrradianceProbe*> irradianceProbes;
         std::vector<Entity*> pendingDeletions;
         std::vector<std::pair<std::string, Entity*>> pendingAdditions;
         SpatialGrid spatialGrid{10.0f};
         bool spatialGridDirty = true;
         bool textureLoadDirty = false;
-        bool irradianceBakingPending = false;
 
-        std::vector<VkBuffer> lightsBuffers;
-        std::vector<VkDeviceMemory> lightsBuffersMemory;
-        std::vector<void*> lightBuffersMapped;
         Camera* camera = nullptr;
-
-        std::vector<VkBuffer> irradianceBuffers;
-        std::vector<VkDeviceMemory> irradianceBuffersMemory;
-        std::vector<void*> irradianceBuffersMapped;
 
         VkBuffer dummySkinningBuffer = VK_NULL_HANDLE;
         VkDeviceMemory dummySkinningBufferMemory = VK_NULL_HANDLE;

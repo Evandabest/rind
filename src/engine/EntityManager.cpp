@@ -1,9 +1,9 @@
 #include <engine/EntityManager.h>
 #include <engine/Camera.h>
-#include <engine/Light.h>
-#include <engine/IrradianceProbe.h>
+#include <engine/IrradianceManager.h>
 #include <engine/Collider.h>
 #include <engine/SettingsManager.h>
+#include <engine/LightManager.h>
 #include <glm/gtc/quaternion.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
@@ -15,8 +15,8 @@ void engine::EntityManager::addCollider(Collider* collider) {
 
 void engine::EntityManager::removeCollider(Collider* collider) {
     spatialGrid.remove(collider);
-    colliders.erase(std::remove(colliders.begin(), colliders.end(), collider), colliders.end());
-    dynamicColliders.erase(std::remove(dynamicColliders.begin(), dynamicColliders.end(), collider), dynamicColliders.end());
+    std::erase(colliders, collider);
+    std::erase(dynamicColliders, collider);
 }
 
 void engine::EntityManager::addDynamicCollider(Collider* collider) {
@@ -24,7 +24,7 @@ void engine::EntityManager::addDynamicCollider(Collider* collider) {
 }
 
 void engine::EntityManager::removeDynamicCollider(Collider* collider) {
-    dynamicColliders.erase(std::remove(dynamicColliders.begin(), dynamicColliders.end(), collider), dynamicColliders.end());
+    std::erase(dynamicColliders, collider);
 }
 
 void engine::EntityManager::rebuildSpatialGrid() {
@@ -50,7 +50,30 @@ engine::Entity::Entity(
     }
 
 engine::Entity::~Entity() {
-    destroyUniformBuffers(entityManager ? entityManager->getRenderer() : nullptr);
+    Renderer* renderer = entityManager ? entityManager->getRenderer() : nullptr;
+    if (renderer) {
+        VkDevice device = renderer->getDevice();
+        ShaderManager* shaderManager = renderer->getShaderManager();
+        if (device != VK_NULL_HANDLE && shaderManager) {
+            if (!descriptorSets.empty() && !shader.empty()) {
+                GraphicsShader* entityShader = shaderManager->getGraphicsShader(shader);
+                if (entityShader && entityShader->descriptorPool != VK_NULL_HANDLE) {
+                    vkFreeDescriptorSets(device, entityShader->descriptorPool,
+                        static_cast<uint32_t>(descriptorSets.size()), descriptorSets.data());
+                }
+            }
+            if (!shadowDescriptorSets.empty()) {
+                GraphicsShader* shadowShader = shaderManager->getGraphicsShader("shadow");
+                if (shadowShader && shadowShader->descriptorPool != VK_NULL_HANDLE) {
+                    vkFreeDescriptorSets(device, shadowShader->descriptorPool,
+                        static_cast<uint32_t>(shadowDescriptorSets.size()), shadowDescriptorSets.data());
+                }
+            }
+        }
+    }
+    descriptorSets.clear();
+    shadowDescriptorSets.clear();
+    destroyUniformBuffers(renderer);
     for (auto& child : children) {
         delete child;
     }
@@ -66,19 +89,10 @@ engine::Model* engine::Entity::getModel() const {
     return model;
 }
 
-void engine::Entity::updateWorldTransform() {
-    glm::mat4 transform(1.0f);
-    static thread_local std::vector<Entity*> hierarchy;
-    hierarchy.clear();
-    for (Entity* current = this; current != nullptr; current = current->getParent()) {
-        hierarchy.push_back(current);
-    }
-    for (int i = static_cast<int>(hierarchy.size()) - 1; i >= 0; --i) {
-        Entity* current = hierarchy[i];
-        transform = transform * current->transform;
-    }
-    if (worldTransform != transform) {
-        worldTransform = transform;
+void engine::Entity::updateWorldTransform(const glm::mat4& parentWorld) {
+    glm::mat4 newWorldTransform = parentWorld * transform;
+    if (newWorldTransform != worldTransform) {
+        worldTransform = newWorldTransform;
         ++transformGeneration;
     }
 }
@@ -97,7 +111,7 @@ void engine::Entity::addChild(Entity* child) {
 }
 
 void engine::Entity::removeChild(Entity* child) {
-    children.erase(std::remove(children.begin(), children.end(), child), children.end());
+    std::erase(children, child);
     child->setParent(nullptr);
     entityManager->addRootEntry(child);
 }
@@ -358,6 +372,11 @@ void engine::Entity::updateAnimation(float deltaTime) {
     }
 }
 
+void engine::Entity::setTextures(const std::vector<std::string>& textures) {
+    this->textures = textures;
+    getEntityManager()->markTexturesDirty();
+}
+
 engine::EntityManager::EntityManager(engine::Renderer* renderer) : renderer(renderer) {
     renderer->registerEntityManager(this);
 }
@@ -365,35 +384,6 @@ engine::EntityManager::EntityManager(engine::Renderer* renderer) : renderer(rend
 engine::EntityManager::~EntityManager() {
     clear();
     destroyDummySkinningBuffer();
-    VkDevice device = renderer->getDevice();
-    for (size_t i = 0; i < lightBuffersMapped.size(); ++i) {
-        if (lightBuffersMapped[i] != nullptr && i < lightsBuffersMemory.size() && lightsBuffersMemory[i] != VK_NULL_HANDLE) {
-            vkUnmapMemory(device, lightsBuffersMemory[i]);
-            lightBuffersMapped[i] = nullptr;
-        }
-    }
-    for (size_t i = 0; i < lightsBuffers.size(); ++i) {
-        if (lightsBuffers[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device, lightsBuffers[i], nullptr);
-        }
-        if (i < lightsBuffersMemory.size() && lightsBuffersMemory[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(device, lightsBuffersMemory[i], nullptr);
-        }
-    }
-    lightsBuffers.clear();
-    lightsBuffersMemory.clear();
-    lightBuffersMapped.clear();
-    for (size_t i = 0; i < irradianceBuffers.size(); ++i) {
-        if (irradianceBuffers[i] != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device, irradianceBuffers[i], nullptr);
-        }
-        if (i < irradianceBuffersMemory.size() && irradianceBuffersMemory[i] != VK_NULL_HANDLE) {
-            vkFreeMemory(device, irradianceBuffersMemory[i], nullptr);
-        }
-    }
-    irradianceBuffers.clear();
-    irradianceBuffersMemory.clear();
-    irradianceBuffersMapped.clear();
 }
 
 void engine::EntityManager::createDummySkinningBuffer() {
@@ -436,7 +426,6 @@ void engine::EntityManager::addEntity(const std::string& name, Entity* entity) {
 
 static std::unordered_set<engine::Entity::EntityType> wontResetShadows = {
     engine::Entity::EntityType::Camera,
-    engine::Entity::EntityType::IrradianceProbe,
     engine::Entity::EntityType::Collider,
     engine::Entity::EntityType::Trigger,
     engine::Entity::EntityType::Empty
@@ -470,7 +459,7 @@ void engine::EntityManager::processPendingAdditions() {
     }
     pendingAdditions.clear();
     if (resetShadows) {
-        createAllShadowMaps();
+        getRenderer()->getLightManager()->createAllShadowMaps();
         vkDeviceWaitIdle(renderer->getDevice());
         renderer->createPostProcessDescriptorSets();
     }
@@ -495,17 +484,6 @@ void engine::EntityManager::unregisterEntity(const std::string& name) {
         if (entity->getParent() == nullptr) {
             removeRootEntry(entity);
         }
-        if (entity->getType() == Entity::EntityType::Light) {
-            Light* light = static_cast<Light*>(entity);
-            auto lightIt = std::find(lights.begin(), lights.end(), light);
-            if (lightIt != lights.end()) {
-                uint32_t removedIdx = std::distance(lights.begin(), lightIt);
-                lights.erase(lightIt);
-                for (uint32_t i = removedIdx; i < lights.size(); ++i) {
-                    lights[i]->updateLightIdx(i);
-                }
-            }
-        }
         Camera* currentCamera = getCamera();
         if (currentCamera && currentCamera->getName() == entity->getName()) {
             setCamera(nullptr);
@@ -513,7 +491,7 @@ void engine::EntityManager::unregisterEntity(const std::string& name) {
         if (entity->getType() == Entity::EntityType::Collider || entity->getType() == Entity::EntityType::Trigger) {
             Collider* collider = static_cast<Collider*>(entity);
             spatialGrid.remove(collider);
-            colliders.erase(std::remove(colliders.begin(), colliders.end(), collider), colliders.end());
+            std::erase(colliders, collider);
         }
         entities.erase(it);
     }
@@ -521,11 +499,12 @@ void engine::EntityManager::unregisterEntity(const std::string& name) {
 
 void engine::EntityManager::clear() {
     movableEntities.clear();
-    lights.clear();
-    irradianceProbes.clear();
     colliders.clear();
+    dynamicColliders.clear();
     spatialGrid.clear();
     entities.clear();
+    pendingDeletions.clear();
+    pendingAdditions.clear();
     auto roots = std::move(rootEntities);
     rootEntities.clear();
     for (Entity* root : roots) {
@@ -563,12 +542,12 @@ void engine::EntityManager::loadTextures() {
             if (!found && i < defaultTextures.size()) {
                 found = textureManager->getTexture(defaultTextures[i]);
                 if (found) {
-                    std::cout << std::format("Warning: Texture {} for Entity {} not found. Using default texture {} instead.\n", textures[i], name, defaultTextures[i]);
+                    std::cout << "Warning: Texture " << textures[i] << " for Entity " << name << " not found. Using default texture " << defaultTextures[i] << " instead.\n";
                 } else {
-                    std::cout << std::format("Warning: Texture {} for Entity {} not found. No default texture available.\n", textures[i], name);
+                    std::cout << "Warning: Texture " << textures[i] << " for Entity " << name << " not found. No default texture available.\n";
                 }
             } else if (!found) {
-                std::cout << std::format("Warning: Texture {} for Entity {} not found.\n", textures[i], name);
+                std::cout << "Warning: Texture " << textures[i] << " for Entity " << name << " not found.\n";
                 continue;
             }
             texturePtrs.push_back(found);
@@ -578,7 +557,7 @@ void engine::EntityManager::loadTextures() {
                 Texture* defaultTex = textureManager->getTexture(defaultTextures[i]);
                 if (defaultTex) {
                     texturePtrs.push_back(defaultTex);
-                    std::cout << std::format("Warning: Not enough textures for Entity {}. Using default texture {}.\n", name, defaultTextures[i]);
+                    std::cout << "Warning: Not enough textures for Entity " << name << ". Using default texture " << defaultTextures[i] << ".\n";
                 }
             }
         }
@@ -603,154 +582,44 @@ void engine::EntityManager::loadTextures() {
             }
         }
         if (texturePtrs.size() < requiredTextures) {
-            std::cout << std::format("Error: Not enough textures for Entity {}. Expected {} image bindings, got {}. Skipping descriptor set creation.\n", name, requiredTextures, texturePtrs.size());
+            std::cout << "Error: Not enough textures for Entity " << name << ". Expected " << requiredTextures << " image bindings, got " << texturePtrs.size() << ". Skipping descriptor set creation.\n";
             continue;
         }
         entity->ensureUniformBuffers(renderer, shader);
         entity->setDescriptorSets(shader->createDescriptorSets(renderer, texturePtrs, entity->getUniformBuffers()));
         if (entity->getCastShadow() && !entity->getUniformBuffers().empty()) {
             GraphicsShader* shadowShader = renderer->getShaderManager()->getGraphicsShader("shadow");
-            if (shadowShader && entity->getShadowDescriptorSets().empty()) {
-                std::vector<Texture*> noTextures;
-                entity->setShadowDescriptorSets(shadowShader->createDescriptorSets(renderer, noTextures, entity->getUniformBuffers()));
+            LightManager* lightManager = renderer->getLightManager();
+            if (shadowShader && lightManager && entity->getShadowDescriptorSets().empty()) {
+                lightManager->createShadowLightsBuffers();
+                auto& entityBuffers = entity->getUniformBuffers();
+                auto& shadowLightsBuffers = lightManager->getShadowLightsBuffers();
+                const size_t framesInFlight = std::min(entityBuffers.size(), shadowLightsBuffers.size());
+                if (framesInFlight > 0) {
+                    std::vector<VkBuffer> interleavedBuffers;
+                    interleavedBuffers.reserve(framesInFlight * 2);
+                    for (size_t frame = 0; frame < framesInFlight; ++frame) {
+                        interleavedBuffers.push_back(entityBuffers[frame]);
+                        interleavedBuffers.push_back(shadowLightsBuffers[frame]);
+                    }
+                    std::vector<Texture*> noTextures;
+                    entity->setShadowDescriptorSets(shadowShader->createDescriptorSets(renderer, noTextures, interleavedBuffers));
+                }
             }
         }
     }
-}
-
-void engine::EntityManager::createLightsUBO() {
-    const size_t frames = static_cast<size_t>(renderer->getFramesInFlight());
-    lightsBuffers.resize(frames, VK_NULL_HANDLE);
-    lightsBuffersMemory.resize(frames, VK_NULL_HANDLE);
-    lightBuffersMapped.resize(frames, nullptr);
-    for (size_t frame = 0; frame < frames; ++frame) {
-        std::tie(lightsBuffers[frame], lightsBuffersMemory[frame]) = renderer->createBuffer(
-            sizeof(LightsUBO),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
-        vkMapMemory(renderer->getDevice(), lightsBuffersMemory[frame], 0, sizeof(LightsUBO), 0, &lightBuffersMapped[frame]);
-    }
-}
-
-void engine::EntityManager::createIrradianceProbesUBO() {
-    const size_t frames = static_cast<size_t>(renderer->getFramesInFlight());
-    irradianceBuffers.resize(frames, VK_NULL_HANDLE);
-    irradianceBuffersMemory.resize(frames, VK_NULL_HANDLE);
-    irradianceBuffersMapped.resize(frames, nullptr);
-    for (size_t frame = 0; frame < frames; ++frame) {
-        std::tie(irradianceBuffers[frame], irradianceBuffersMemory[frame]) = renderer->createBuffer(
-            sizeof(IrradianceProbesUBO),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-        );
-        vkMapMemory(renderer->getDevice(), irradianceBuffersMemory[frame], 0, sizeof(IrradianceProbesUBO), 0, &irradianceBuffersMapped[frame]);
-    }
-}
-
-void engine::EntityManager::updateLightsUBO(uint32_t frameIndex) {
-    if (lightsBuffers.size() < static_cast<size_t>(renderer->getFramesInFlight())) {
-        createLightsUBO();
-    }
-    if (frameIndex >= lightsBuffers.size() || lightsBuffers[frameIndex] == VK_NULL_HANDLE) {
-        std::cout << std::format("Warning: Lights UBO buffer unavailable for frame {}. Skipping lights update.\n", frameIndex);
-        return;
-    }
-    LightsUBO lightsUBO{};
-    const std::vector<Light*>& lights = getLights();
-    size_t count = std::min(lights.size(), static_cast<size_t>(64));
-    for (size_t i = 0; i < count; ++i) {
-        lightsUBO.pointLights[i] = lights[i]->getPointLightData();
-    }
-    lightsUBO.numPointLights = glm::uvec4(count, 0, 0, 0);
-    memcpy(lightBuffersMapped[frameIndex], &lightsUBO, sizeof(lightsUBO));
-}
-
-void engine::EntityManager::updateIrradianceProbesUBO(uint32_t frameIndex) {
-    if (irradianceBuffers.size() < static_cast<size_t>(renderer->getFramesInFlight())) {
-        createIrradianceProbesUBO();
-    }
-    if (frameIndex >= irradianceBuffers.size() || irradianceBuffers[frameIndex] == VK_NULL_HANDLE) {
-        std::cout << std::format("Warning: Irradiance Probes UBO buffer unavailable for frame {}. Skipping irradiance probes update.\n", frameIndex);
-        return;
-    }
-    IrradianceProbesUBO irradianceProbesUBO{};
-    const std::vector<IrradianceProbe*>& probes = getIrradianceProbes();
-    size_t count = std::min(probes.size(), static_cast<size_t>(32));
-    for (size_t i = 0; i < count; ++i) {
-        irradianceProbesUBO.probes[i] = probes[i]->getProbeData();
-    }
-    irradianceProbesUBO.numProbes = glm::uvec4(count, 0, 0, 0);
-    memcpy(irradianceBuffersMapped[frameIndex], &irradianceProbesUBO, sizeof(irradianceProbesUBO));
-}
-
-void engine::EntityManager::createAllShadowMaps() {
-    vkDeviceWaitIdle(renderer->getDevice());
-    const std::vector<Light*>& lights = getLights();
-    for (auto& light : lights) {
-        light->createShadowMaps(renderer, true);
-    }
-}
-
-void engine::EntityManager::createAllIrradianceMaps() {
-    vkDeviceWaitIdle(renderer->getDevice());
-    const std::vector<IrradianceProbe*>& probes = getIrradianceProbes();
-    for (auto& probe : probes) {
-        probe->createCubemaps(renderer);
-    }
-}
-
-void engine::EntityManager::renderShadows(VkCommandBuffer commandBuffer, uint32_t currentFrame) {
-    const std::vector<Light*>& lights = getLights();
-    for (auto& light : lights) {
-        light->renderShadowMap(renderer, commandBuffer, currentFrame);
-    }
-}
-
-void engine::EntityManager::bakeIrradianceMaps(VkCommandBuffer commandBuffer) {
-    const std::vector<IrradianceProbe*>& probes = getIrradianceProbes();
-    for (auto& probe : probes) {
-        probe->bakeCubemap(renderer, commandBuffer);
-    }
-}
-
-void engine::EntityManager::recordIrradianceReadback(VkCommandBuffer commandBuffer) {
-    for (auto& probe : getIrradianceProbes()) {
-        probe->copyBakedToDynamic(renderer, commandBuffer);
-        probe->dispatchSHCompute(renderer, commandBuffer);
-    }
-}
-
-void engine::EntityManager::renderDynamicIrradiance(VkCommandBuffer commandBuffer, uint32_t currentFrame) {
-    if (!camera) return;
-    for (auto& probe : getIrradianceProbes()) {
-        probe->processSHProjection(renderer);
-    }
-    for (auto& probe : getIrradianceProbes()) {
-        if (camera->isSphereInFrustum(probe->getWorldPosition(), probe->getRadius())) {
-            probe->renderDynamicCubemap(renderer, commandBuffer, currentFrame);
-            probe->dispatchSHCompute(renderer, commandBuffer);
-        }
-    }
-}
-
-void engine::EntityManager::processIrradianceSH() {
-    for (auto& probe : getIrradianceProbes()) {
-        probe->processSHProjection(renderer);
-    }
-    irradianceBakingPending = false;
 }
 
 void engine::EntityManager::updateAll(float deltaTime) {
     if (spatialGridDirty) {
-        auto updateTransforms = [&](auto& self, Entity* entity) -> void {
-            entity->updateWorldTransform();
+        auto updateTransforms = [&](auto& self, Entity* entity, const glm::mat4& parentWorld) -> void {
+            entity->updateWorldTransform(parentWorld);
             for (Entity* child : entity->getChildren()) {
-                self(self, child);
+                self(self, child, entity->getWorldTransform());
             }
         };
         for (Entity* rootEntity : rootEntities) {
-            updateTransforms(updateTransforms, rootEntity);
+            updateTransforms(updateTransforms, rootEntity, glm::mat4(1.0f));
         }
         rebuildSpatialGrid();
         spatialGridDirty = false;
@@ -758,17 +627,17 @@ void engine::EntityManager::updateAll(float deltaTime) {
         updateDynamicColliders();
     }
     
-    auto traverse = [&](auto& self, Entity* entity) -> void {
-        entity->updateWorldTransform();
+    auto traverse = [&](auto& self, Entity* entity, const glm::mat4& parentWorld) -> void {
+        entity->updateWorldTransform(parentWorld);
         entity->update(deltaTime);
         entity->updateAnimation(deltaTime);
         for (Entity* child : entity->getChildren()) {
-            self(self, child);
+            self(self, child, entity->getWorldTransform());
         }
     };
     std::vector<Entity*> rootsCopy = rootEntities;
     for (Entity* rootEntity : rootsCopy) {
-        traverse(traverse, rootEntity);
+        traverse(traverse, rootEntity, glm::mat4(1.0f));
     }
     if (textureLoadDirty) {
         loadTextures();
@@ -779,13 +648,14 @@ void engine::EntityManager::updateAll(float deltaTime) {
 void engine::EntityManager::processPendingDeletions() {
     if (pendingDeletions.empty()) return;
     vkDeviceWaitIdle(renderer->getDevice());
-    std::vector<Entity*> deletionsCopy = pendingDeletions;
-    for (Entity* entity : deletionsCopy) {
+    static thread_local std::vector<Entity*> rootsTraversalBuffer;
+    rootsTraversalBuffer.clear();
+    std::swap(rootsTraversalBuffer, pendingDeletions);
+    for (Entity* entity : rootsTraversalBuffer) {
         if (entity) {
             removeEntity(entity->getName());
         }
     }
-    pendingDeletions.clear();
 }
 
 void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, uint32_t currentFrame, bool DEBUG_RENDER_LOGS) {
@@ -816,8 +686,10 @@ void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, uint32
         ShaderManager* shaderManager = renderer->getShaderManager();
         Model* model = entity->getModel();
         GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("gbuffer");
-        if (model && shader
-            && camera->isAABBInFrustum(model->getAABB(), entity->getWorldTransform())
+        if (model && shader && entity->isVisible()
+         && (camera->isAABBInFrustum(model->getAABB(), entity->getWorldTransform())
+             || entity->isAnimated()
+            )
         ) {
             updateJointMatricesUBO(entity);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipeline);
@@ -841,8 +713,7 @@ void engine::EntityManager::renderEntities(VkCommandBuffer commandBuffer, uint32
                     .model = entity->getWorldTransform(),
                     .view = camera->getViewMatrix(),
                     .projection = camera->getProjectionMatrix(),
-                    .camPos = camera->getWorldPosition(),
-                    .flags = model->hasSkinning() ? 1u : 0u
+                    .camPos = glm::vec4(camera->getWorldPosition(), model->hasSkinning() ? 1u : 0u)
                 };
                 vkCmdPushConstants(commandBuffer, shader->pipelineLayout, shader->config.pushConstantRange.stageFlags, 0, sizeof(GBufferPC), &pc);
             }

@@ -7,7 +7,6 @@ struct VSOutput {
 struct PointLight {
     float4 positionRadius;
     float4 colorIntensity;
-    float4x4 lightViewProj[6];
     float4 shadowParams;
     uint4 shadowData;
 };
@@ -22,10 +21,18 @@ struct IrradianceProbe {
     float4 shCoeffs[9];
 };
 
+static const uint kMaxIrradianceProbes = 64u;
+
 struct IrradianceProbesUBO {
-    IrradianceProbe probes[32];
+    IrradianceProbe probes[kMaxIrradianceProbes];
     uint4 numProbes;
 };
+
+struct ProbeSHData {
+    float4 coeffs[9];
+};
+
+static const uint INVALID_SHADOW_INDEX = 0xFFFFFFFF;
 
 [[vk::binding(0)]]
 ConstantBuffer<LightsUBO> lightsUBO;
@@ -52,24 +59,25 @@ Texture2D<float4> particleTexture;
 Texture2D<float4> volumetricTexture;
 
 [[vk::binding(8)]]
-TextureCube<float> shadowMaps[64];
+Texture2DArray<float> shadowTexture;
 
 [[vk::binding(9)]]
+Texture2D<float> aoTexture;
+
+[[vk::binding(10)]]
 SamplerState sampleSampler;
+
+[[vk::binding(11)]]
+StructuredBuffer<ProbeSHData> irradianceProbeSH;
 
 struct PushConstants {
     float4x4 invView;
     float4x4 invProj;
-    float3 camPos;
-    uint shadowSamples;
+    float4 camPos; // w = bit 0, 1 = 3x3 bilateral, 0 = single bilinear
 };
 [[vk::push_constant]] PushConstants pc;
 
 static const float PI = 3.14159265359;
-
-float worldAngle(float3 worldPos) {
-    return frac(sin(dot(worldPos, float3(127.1, 311.7, 74.7))) * 43758.5453) * 6.28318;
-}
 
 float3 reconstructPosition(float2 uv, float depth) {
     float4 ndc = float4(uv * 2.0 - 1.0, depth, 1.0);
@@ -77,6 +85,46 @@ float3 reconstructPosition(float2 uv, float depth) {
     viewPos /= viewPos.w;
     float4 worldPos = mul(viewPos, pc.invView);
     return worldPos.xyz;
+}
+
+float linearViewZ(float ndcZ) {
+    float4 v = mul(float4(0.0, 0.0, ndcZ, 1.0), pc.invProj);
+    return v.z / v.w;
+}
+
+float4 sampleVolumetricUpsampled(float2 uv, float refNdcDepth) {
+    if ((uint(pc.camPos.w) & 1u) == 0u) {
+        return volumetricTexture.SampleLevel(sampleSampler, uv, 0);
+    }
+    uint2 vDim;
+    volumetricTexture.GetDimensions(vDim.x, vDim.y);
+    float2 halfSize = float2(vDim);
+    float2 invHalf = 1.0 / halfSize;
+    int2 center = int2(floor(uv * halfSize));
+    int2 maxIdx = int2(vDim) - 1;
+
+    float refViewZ = linearViewZ(refNdcDepth);
+    float invRef = 1.0 / max(abs(refViewZ), 0.01);
+
+    float4 accum = float4(0.0, 0.0, 0.0, 0.0);
+    float totalW = 0.0;
+    [unroll]
+    for (int dy = -1; dy <= 1; ++dy) {
+        [unroll]
+        for (int dx = -1; dx <= 1; ++dx) {
+            int2 p = clamp(center + int2(dx, dy), int2(0, 0), maxIdx);
+            float2 tapUV = (float2(p) + 0.5) * invHalf;
+            float tapNdc = gBufferDepth.SampleLevel(sampleSampler, tapUV, 0);
+            float relDiff = abs(linearViewZ(tapNdc) - refViewZ) * invRef;
+            float wd = exp(-relDiff * 50.0);
+            accum += volumetricTexture.Load(int3(p, 0)) * wd;
+            totalW += wd;
+        }
+    }
+    if (totalW < 1e-5) {
+        return volumetricTexture.SampleLevel(sampleSampler, uv, 0);
+    }
+    return accum / totalW;
 }
 
 float3 fresnelSchlickRoughness(float cosTheta, float3 F0, float roughness) {
@@ -105,9 +153,7 @@ float geometrySchlickGGX(float NdotV, float roughness) {
     return NdotV / max(denom, 0.0001);
 }
 
-float geometrySmith(float3 N, float3 V, float3 L, float roughness) {
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
+float geometrySmith(float NdotV, float NdotL, float roughness) {
     float ggx2 = geometrySchlickGGX(NdotV, roughness);
     float ggx1 = geometrySchlickGGX(NdotL, roughness);
     return ggx1 * ggx2;
@@ -121,85 +167,15 @@ float specularAntiAliasing(float3 N, float roughness) {
     return clamp(roughness + kernelRoughness, 0.0, 1.0);
 }
 
-static const uint INVALID_SHADOW_INDEX = 0xFFFFFFFF;
-
-static const float2 diskOffsets[16] = {
-    float2(-0.9420162, -0.3990622),
-    float2( 0.9455861, -0.7689073),
-    float2(-0.0941841, -0.9293887),
-    float2( 0.3449594,  0.2938776),
-    float2(-0.9158858,  0.4577143),
-    float2(-0.8154423, -0.8791246),
-    float2(-0.3827754,  0.2767685),
-    float2( 0.9748440,  0.7564838),
-    float2( 0.4432332, -0.9751155),
-    float2( 0.5374298, -0.4737342),
-    float2(-0.2649691, -0.4189302),
-    float2( 0.7919751,  0.1909019),
-    float2(-0.2418884,  0.9970651),
-    float2(-0.8140996,  0.9143759),
-    float2( 0.1998413,  0.7864137),
-    float2( 0.1438316, -0.1410079)
-};
-
-float linearizeDepth(float perspectiveDepth, float nearPlane, float farPlane) {
-    return nearPlane * farPlane / (farPlane - perspectiveDepth * (farPlane - nearPlane));
-}
-
-float computePointShadow(PointLight light, float3 fragPos, float3 geomNormal, float3 lightDir) {
-    uint shadowIndex = light.shadowData.x;
-    uint hasShadow = light.shadowData.y;
-    if (shadowIndex == INVALID_SHADOW_INDEX || hasShadow == 0) {
-        return 1.0;
-    }
-    float3 lightPos = light.positionRadius.xyz;
-    float3 toFrag = fragPos - lightPos;
-    float currentDistance = length(toFrag);
-    float farPlane = light.shadowParams.y;
-    float nearPlane = light.shadowParams.z;
-    float baseBias = light.shadowParams.x;
-    float shadowFadeStart = nearPlane * 10.0;
-    if (currentDistance <= nearPlane || currentDistance > farPlane) {
-        return 1.0;
-    }
-    float shadowFade = saturate((currentDistance - nearPlane) / (shadowFadeStart - nearPlane));
-    float currentDepth = currentDistance / farPlane;
-    float3 sampleDir = normalize(toFrag);
-    float NdotL = max(dot(geomNormal, lightDir), 0.0);
-    float slopeBias = baseBias * (1.0 - NdotL) * 2.0;
-    float distanceBias = baseBias * (nearPlane / max(currentDistance, nearPlane));
-    float bias = baseBias + slopeBias + distanceBias;
-    float shadow = 0.0;
-    float totalWeight = 0.0;
-    float diskRadius = 0.02 + 0.04 * (currentDistance / farPlane) * sqrt(pc.shadowSamples / 16.0);
-    float penumbraSize = 0.015 * (currentDistance / farPlane);
-    float angle = worldAngle(fragPos);
-    float cosA = cos(angle), sinA = sin(angle);
-    float3 up = abs(sampleDir.z) < 0.999 ? float3(0,0,1) : float3(1,0,0);
-    float3 right = normalize(cross(up, sampleDir));
-    float3 forward = cross(sampleDir, right);
-    for (uint i = 0; i < pc.shadowSamples; ++i) {
-        float2 o = diskOffsets[i];
-        float2 rotated = float2(o.x * cosA - o.y * sinA, o.x * sinA + o.y * cosA);
-        float3 offsetDir = right * rotated.x + forward * rotated.y;
-        float3 sampleOffset = sampleDir + offsetDir * diskRadius;
-        float sampleDepth = shadowMaps[shadowIndex].Sample(sampleSampler, sampleOffset);
-        float weight = 1.0 - length(o);
-        float diff = (currentDepth - bias) - sampleDepth;
-        shadow += smoothstep(0.0, penumbraSize, diff) * weight;
-        totalWeight += weight;
-    }
-    shadow /= totalWeight;
-    shadow *= shadowFade;
-    return 1.0 - shadow;
-}
-
-float3 evaluateIrradiance(float3 N, float3 fragPos) {
-    float3 irradiance = float3(0.0, 0.0, 0.0);
+void evaluateIrradiance(float3 diffuseDir, float3 specularDir, float3 fragPos, out float3 diffuseIrr, out float3 specularIrr) {
+    diffuseIrr = float3(0.0, 0.0, 0.0);
+    specularIrr = float3(0.0, 0.0, 0.0);
     uint numProbes = irradianceProbesUBO.numProbes.x;
-    float totalWeight = 0.0001;
+    float totalWeightDiffuse = 0.0001;
+    float totalWeightSpecular = 0.0001;
     
-    float3 n = float3(N.z, N.x, N.y);
+    float3 diffuseN = float3(diffuseDir.z, diffuseDir.x, diffuseDir.y);
+    float3 specularN = float3(specularDir.z, specularDir.x, specularDir.y);
     
     for (uint i = 0; i < numProbes; ++i) {
         float3 probePos = irradianceProbesUBO.probes[i].position.xyz;
@@ -210,15 +186,15 @@ float3 evaluateIrradiance(float3 N, float3 fragPos) {
             float t = saturate(1.0 - dist / probeRadius);
             float weight = t * t;
             
-            float3 L00 = irradianceProbesUBO.probes[i].shCoeffs[0].xyz;
-            float3 L1m1 = irradianceProbesUBO.probes[i].shCoeffs[1].xyz;
-            float3 L10 = irradianceProbesUBO.probes[i].shCoeffs[2].xyz;
-            float3 L11 = irradianceProbesUBO.probes[i].shCoeffs[3].xyz;
-            float3 L2m2 = irradianceProbesUBO.probes[i].shCoeffs[4].xyz;
-            float3 L2m1 = irradianceProbesUBO.probes[i].shCoeffs[5].xyz;
-            float3 L20 = irradianceProbesUBO.probes[i].shCoeffs[6].xyz;
-            float3 L21 = irradianceProbesUBO.probes[i].shCoeffs[7].xyz;
-            float3 L22 = irradianceProbesUBO.probes[i].shCoeffs[8].xyz;
+            float3 L00 = irradianceProbeSH[i].coeffs[0].xyz;
+            float3 L1m1 = irradianceProbeSH[i].coeffs[1].xyz;
+            float3 L10 = irradianceProbeSH[i].coeffs[2].xyz;
+            float3 L11 = irradianceProbeSH[i].coeffs[3].xyz;
+            float3 L2m2 = irradianceProbeSH[i].coeffs[4].xyz;
+            float3 L2m1 = irradianceProbeSH[i].coeffs[5].xyz;
+            float3 L20 = irradianceProbeSH[i].coeffs[6].xyz;
+            float3 L21 = irradianceProbeSH[i].coeffs[7].xyz;
+            float3 L22 = irradianceProbeSH[i].coeffs[8].xyz;
             
             const float c1 = 0.429043;
             const float c2 = 0.511664;
@@ -226,27 +202,29 @@ float3 evaluateIrradiance(float3 N, float3 fragPos) {
             const float c4 = 0.886227;
             const float c5 = 0.247708;
             
-            float3 shSum = c4 * L00
-                         + 2.0 * c2 * (L11 * n.x + L1m1 * n.y + L10 * n.z)
-                         + 2.0 * c1 * (L2m2 * n.x * n.y + L21 * n.x * n.z + L2m1 * n.y * n.z)
-                         + c3 * L20 * n.z * n.z
-                         + c1 * L22 * (n.x * n.x - n.y * n.y)
+            float3 shSumDiffuse = c4 * L00
+                         + 2.0 * c2 * (L11 * diffuseN.x + L1m1 * diffuseN.y + L10 * diffuseN.z)
+                         + 2.0 * c1 * (L2m2 * diffuseN.x * diffuseN.y + L21 * diffuseN.x * diffuseN.z + L2m1 * diffuseN.y * diffuseN.z)
+                         + c3 * L20 * diffuseN.z * diffuseN.z
+                         + c1 * L22 * (diffuseN.x * diffuseN.x - diffuseN.y * diffuseN.y)
                          - c5 * L20;
-            
-            irradiance += shSum * weight;
-            totalWeight += weight;
+            diffuseIrr += shSumDiffuse * weight;
+            totalWeightDiffuse += weight;
+
+            float3 shSumSpecular = c4 * L00
+                         + 2.0 * c2 * (L11 * specularN.x + L1m1 * specularN.y + L10 * specularN.z)
+                         + 2.0 * c1 * (L2m2 * specularN.x * specularN.y + L21 * specularN.x * specularN.z + L2m1 * specularN.y * specularN.z)
+                         + c3 * L20 * specularN.z * specularN.z
+                         + c1 * L22 * (specularN.x * specularN.x - specularN.y * specularN.y)
+                         - c5 * L20;
+            specularIrr += shSumSpecular * weight;
+            totalWeightSpecular += weight;
         }
     }
-    return max(irradiance / totalWeight, float3(0.0, 0.0, 0.0));
-}
-
-float3 ACESFilm(float3 x) {
-    float a = 2.51;
-    float b = 0.03;
-    float c = 2.43;
-    float d = 0.59;
-    float e = 0.14;
-    return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+    diffuseIrr /= totalWeightDiffuse;
+    specularIrr /= totalWeightSpecular;
+    diffuseIrr = max(diffuseIrr, float3(0.0, 0.0, 0.0));
+    specularIrr = max(specularIrr, float3(0.0, 0.0, 0.0));
 }
 
 float4 main(VSOutput input) : SV_Target {
@@ -258,14 +236,15 @@ float4 main(VSOutput input) : SV_Target {
     float metallic = materialSample.r;
     float baseRoughness = materialSample.g;
     float depth = gBufferDepth.Sample(sampleSampler, input.fragTexCoord);
+    float ao = aoTexture.Sample(sampleSampler, input.fragTexCoord);
     if (depth >= 0.9999) {
         float4 particleColor = particleTexture.Sample(sampleSampler, input.fragTexCoord);
-        float4 volumetricColor = volumetricTexture.Sample(sampleSampler, input.fragTexCoord);
-        float3 result = albedoSample.rgb + particleColor.rgb * particleColor.a + volumetricColor.rgb;
-        return float4(ACESFilm(result), particleColor.a + volumetricColor.a);
+        float4 volumetricColor = sampleVolumetricUpsampled(input.fragTexCoord, depth);
+        float3 result = albedoSample.rgb * ao + particleColor.rgb * particleColor.a + volumetricColor.rgb;
+        return float4(result, particleColor.a + volumetricColor.a);
     }
     float3 fragPos = reconstructPosition(input.fragTexCoord, depth);
-    float3 toCamera = pc.camPos - fragPos;
+    float3 toCamera = pc.camPos.xyz - fragPos;
     float camDist = length(toCamera);
     float3 V = (camDist > 0.001) ? (toCamera / camDist) : float3(0.0, 1.0, 0.0);
     float3 geomNormal = cross(ddx(fragPos), ddy(fragPos));
@@ -293,7 +272,8 @@ float4 main(VSOutput input) : SV_Target {
         float3 lightPos = light.positionRadius.xyz;
         float lightRadius = light.positionRadius.w;
         float3 lightColor = light.colorIntensity.rgb;
-        float intensity = light.colorIntensity.w;
+        uint shadowIndex = light.shadowData.x;
+        float intensity = light.colorIntensity.w * 2.0;
         float3 toLight = lightPos - fragPos;
         float distance = length(toLight);
         if (distance < 0.001) {
@@ -306,8 +286,11 @@ float4 main(VSOutput input) : SV_Target {
             continue;
         }
         H = H / hLen;        
-        float t = saturate(1.0 - distance / lightRadius);
-        float attenuation = t * t;
+        float d2 = distance * distance;
+        float r0 = lightRadius * 0.1;
+        float r02 = r0 * r0;
+        float windowFalloff = saturate(1.0 - pow(distance / lightRadius, 4.0));
+        float attenuation = (r02 / (d2 + r02)) * windowFalloff * windowFalloff;
         
         float3 radiance = lightColor * intensity * attenuation;
         float NdotL = max(dot(N, L), 0.0);
@@ -315,7 +298,7 @@ float4 main(VSOutput input) : SV_Target {
 
         float3 F = fresnelSchlickRoughness(max(dot(H, V), 0.0), F0, roughness);
         float D = distributionGGX(N, H, roughness);
-        float G = geometrySmith(N, V, L, roughness);
+        float G = geometrySmith(NdotV, NdotL, roughness);
 
         float3 numerator = F * D * G;
         float denominator = 4.0 * max(NdotV, 0.0001) * max(NdotL, 0.0001);
@@ -323,24 +306,28 @@ float4 main(VSOutput input) : SV_Target {
         float3 kD = (1.0 - F) * (1.0 - metallic);
         float3 diffuse = kD * albedoSample.rgb;
 
-        float shadow = computePointShadow(light, fragPos, geomNormal, L);
+        bool hasShadow = (shadowIndex != INVALID_SHADOW_INDEX && light.shadowData.y != 0 && shadowIndex < 64u);
+        float shadow = hasShadow
+            ? shadowTexture.Sample(sampleSampler, float3(input.fragTexCoord, float(shadowIndex)))
+            : 1.0;
 
         float3 contribution = (diffuse + specular) * radiance * NdotL * shadow;
         contribution = clamp(contribution, float3(0.0, 0.0, 0.0), float3(100.0, 100.0, 100.0));
         Lo += contribution;
     }
-    float3 irradiance = evaluateIrradiance(N, fragPos);
     float NdotV = max(dot(N, V), 0.0);
     float3 FIndirect = fresnelSchlickRoughness(NdotV, F0, roughness);
     float3 kDIndirect = (1.0 - FIndirect) * (1.0 - metallic);
     
-    float3 indirectDiffuse = kDIndirect * irradiance * albedoSample.rgb;
-    
     float3 R = reflect(-V, N);
     
     float3 dominantDir = lerp(R, N, roughness * roughness);
-    float3 specularIrradiance = evaluateIrradiance(dominantDir, fragPos);
+    float3 irradiance = float3(0.0, 0.0, 0.0);
+    float3 specularIrradiance = float3(0.0, 0.0, 0.0);
+
+    evaluateIrradiance(N, dominantDir, fragPos, irradiance, specularIrradiance);
     
+    float3 indirectDiffuse = kDIndirect * irradiance * albedoSample.rgb;
     float shSpecularValidity = roughness * roughness;
     
     float2 envBRDF = float2(1.0 - roughness, roughness) * FIndirect.r;
@@ -354,9 +341,10 @@ float4 main(VSOutput input) : SV_Target {
     if (any(isnan(Lo)) || any(isinf(Lo))) {
         Lo = albedoSample.rgb * 0.1;
     }
+    Lo *= ao;
     float4 particleColor = particleTexture.Sample(sampleSampler, input.fragTexCoord);
-    float4 volumetricColor = volumetricTexture.Sample(sampleSampler, input.fragTexCoord);
+    float4 volumetricColor = sampleVolumetricUpsampled(input.fragTexCoord, depth);
     Lo += particleColor.rgb * particleColor.a + volumetricColor.rgb;
     float alphaOut = max(max(Lo.r, Lo.g), max(Lo.b, albedoSample.a));
-    return float4(ACESFilm(Lo), alphaOut);
+    return float4(Lo, alphaOut);
 }

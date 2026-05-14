@@ -12,6 +12,7 @@
 #include <optional>
 #include <utility>
 #include <chrono>
+#include <unordered_map>
 
 namespace engine {
     struct GraphicsShader;
@@ -38,6 +39,8 @@ namespace engine {
         void registerAudioManager(class AudioManager* audioManager) { this->audioManager = audioManager; }
         void registerSettingsManager(class SettingsManager* settingsManager) { this->settingsManager = settingsManager; }
         void registerVolumetricManager(class VolumetricManager* volumetricManager) { this->volumetricManager = volumetricManager; }
+        void registerLightManager(class LightManager* lightManager) { this->lightManager = lightManager; }
+        void registerIrradianceManager(class IrradianceManager* irradianceManager) { this->irradianceManager = irradianceManager; }
         class EntityManager* getEntityManager() { return entityManager; }
         class InputManager* getInputManager() { return inputManager; }
         class UIManager* getUIManager() { return uiManager; }
@@ -49,6 +52,8 @@ namespace engine {
         class AudioManager* getAudioManager() { return audioManager; }
         class SettingsManager* getSettingsManager() { return settingsManager; }
         class VolumetricManager* getVolumetricManager() { return volumetricManager; }
+        class LightManager* getLightManager() { return lightManager; }
+        class IrradianceManager* getIrradianceManager() { return irradianceManager; }
 
         void toggleLockCursor(bool lock);
         bool isPaused() const { return paused; }
@@ -66,6 +71,20 @@ namespace engine {
             VkMemoryPropertyFlags properties,
             uint32_t arrayLayers,
             VkImageCreateFlags flags = 0
+        );
+        VkResult tryCreateImage(
+            uint32_t width,
+            uint32_t height,
+            uint32_t mipLevels,
+            VkSampleCountFlagBits samples,
+            VkFormat format,
+            VkImageTiling tiling,
+            VkImageUsageFlags usage,
+            VkMemoryPropertyFlags properties,
+            uint32_t arrayLayers,
+            VkImageCreateFlags flags,
+            VkImage& outImage,
+            VkDeviceMemory& outMemory
         );
         VkImageView createImageView(
             VkImage image,
@@ -136,12 +155,24 @@ namespace engine {
             uint32_t arrayLayers,
             VkImageCreateFlags flags
         );
+        void generateMipmaps(
+            VkImage image,
+            VkFormat format,
+            uint32_t width,
+            uint32_t height,
+            uint32_t mipLevels,
+            uint32_t layerCount = 1
+        );
+        bool formatSupportsLinearBlit(VkFormat format);
 
         void ensureFallbackShadowCubeTexture();
         void ensureFallback2DTexture();
         void refreshDescriptorSets();
         void resetPostProcessDescriptorPools();
+        void resetPerObjectDescriptorPools();
         void createPostProcessDescriptorSets();
+        void createComputeDescriptorSets();
+        void dispatchComputePass(VkCommandBuffer commandBuffer, RenderNode& node);
         VkImageView getPassImageView(const std::string& shaderName, const std::string& attachmentName);
 
         VkDevice getDevice() const { return device; }
@@ -158,6 +189,8 @@ namespace engine {
         void setFPSFrameCount(uint32_t count) { fpsFrameCount = count; }
         VkSampler getMainTextureSampler() const { return mainTextureSampler; }
         VkSampler getNearestSampler() const { return nearestSampler; }
+        VkSampler getLinearClampSampler() const { return linearClampSampler; }
+        uint32_t getCurrentFrameIndex() const { return currentFrame; }
         void setHoveredObject(UIObject* obj) { hoveredObject = obj; }
         PFN_vkCmdBeginRendering getFpCmdBeginRendering() const { return fpCmdBeginRendering; }
         PFN_vkCmdEndRendering getFpCmdEndRendering() const { return fpCmdEndRendering; }
@@ -181,11 +214,6 @@ namespace engine {
             , "VK_KHR_portability_subset"
         #endif
         };
-        #ifndef VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME
-        #define VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME "VK_EXT_shader_atomic_float"
-        #endif
-        // Runtime toggle: use CAS fallback when float atomicAdd isn’t available via VK_EXT_shader_atomic_float
-        bool useCASAdvection = true;
         #ifdef NDEBUG
             const bool enableValidationLayers = false;
             const bool DEBUG_RENDER_LOGS = false;
@@ -226,8 +254,10 @@ namespace engine {
 
         bool shadowMapRecreationPending = false;
 
-        VkQueue graphicsQueue;
-        VkQueue presentQueue;
+        VkQueue graphicsQueue = VK_NULL_HANDLE;
+        VkQueue computeQueue = VK_NULL_HANDLE;
+        VkQueue presentQueue = VK_NULL_HANDLE;
+        bool hasAsyncComputeQueue = false;
         VkSwapchainKHR swapChain;
         std::vector<VkImage> swapChainImages;
         std::vector<VkImageLayout> swapChainImageLayouts;
@@ -235,9 +265,11 @@ namespace engine {
         VkExtent2D swapChainExtent;
         std::vector<VkImageView> swapChainImageViews;
         std::vector<std::shared_ptr<PassInfo>> managedRenderPasses;
-        VkCommandPool commandPool;
+        VkCommandPool commandPool = VK_NULL_HANDLE;
+        VkCommandPool computeCommandPool = VK_NULL_HANDLE;
         VkSampler mainTextureSampler;
         VkSampler nearestSampler;
+        VkSampler linearClampSampler;
         class TextObject* fpsCounter = nullptr;
         std::chrono::steady_clock::time_point lastFPSUpdateTime = std::chrono::steady_clock::now();
         uint32_t fpsFrameCount = 0;
@@ -249,9 +281,40 @@ namespace engine {
         VkDeviceMemory uiIndexBufferMemory;
 
         std::vector<VkFence> inFlightFences;
+        std::vector<VkFence> inFlightComputeFences;
         std::vector<VkSemaphore> imageAvailableSemaphores;
         std::vector<VkSemaphore> renderFinishedSemaphores;
         std::vector<VkCommandBuffer> commandBuffers;
+        std::vector<std::vector<VkCommandBuffer>> graphicsSegmentCommandBuffers;
+        std::vector<std::vector<VkCommandBuffer>> computeSegmentCommandBuffers;
+        std::vector<std::vector<VkSemaphore>> crossQueueSegmentSemaphores;
+
+        enum class NodeQueueClass {
+            Graphics,
+            Compute
+        };
+        struct CrossQueueEdge {
+            size_t fromSubmission = 0;
+            size_t toSubmission = 0;
+        };
+        struct RenderSubmitNode {
+            size_t nodeIdx = 0;
+            NodeQueueClass queueClass = NodeQueueClass::Graphics;
+            std::vector<size_t> dependencySubmissions;
+            std::vector<size_t> incomingCrossQueueEdges;
+            std::vector<size_t> outgoingCrossQueueEdges;
+        };
+        struct RenderSubmitGraph {
+            std::vector<RenderSubmitNode> submissions;
+            std::vector<CrossQueueEdge> crossQueueEdges;
+            std::vector<size_t> submissionOrder;
+            uint32_t graphicsSubmissionCount = 0;
+            uint32_t computeSubmissionCount = 0;
+            size_t imageAvailableWaitOrderPos = 0;
+            bool valid = false;
+        };
+        RenderSubmitGraph renderSubmitGraph;
+        std::vector<std::unordered_map<std::string, VkPipelineStageFlags2>> renderNodeAttachmentReadStages;
 
         class EntityManager* entityManager;
         class InputManager* inputManager;
@@ -264,6 +327,8 @@ namespace engine {
         class AudioManager* audioManager;
         class SettingsManager* settingsManager;
         class VolumetricManager* volumetricManager;
+        class LightManager* lightManager;
+        class IrradianceManager* irradianceManager;
 
         UIObject* hoveredObject = nullptr;
         bool clicking = false;
@@ -278,18 +343,28 @@ namespace engine {
         void createSwapChain(VkSwapchainKHR oldSwapchain);
         void createImageViews();
         void createAttachmentResources();
+        void destroyAttachmentResources();
         void createCommandPool();
         void createMainTextureSampler();
         void createNearestSampler();
+        void createLinearClampSampler();
         void createCommandBuffers();
         void createSyncObjects();
         void createQuadResources();
+        void buildRenderSubmitGraph();
+        void buildRenderAttachmentReadStages();
 
         void drawFrame();
 
         VkCommandBuffer beginSingleTimeCommands();
         void endSingleTimeCommands(VkCommandBuffer commandBuffer);
-        void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
+        void recordCommandBuffer(
+            VkCommandBuffer commandBuffer,
+            uint32_t imageIndex,
+            const std::vector<size_t>* nodeOrder = nullptr,
+            bool doFramePrep = true,
+            NodeQueueClass queueClass = NodeQueueClass::Graphics
+        );
 
         void draw2DPass(VkCommandBuffer commandBuffer, RenderNode& node);
 
@@ -307,6 +382,7 @@ namespace engine {
         }
         struct QueueFamilyIndices {
             std::optional<uint32_t> graphicsFamily;
+            std::optional<uint32_t> computeFamily;
             std::optional<uint32_t> presentFamily;
             bool isComplete() {
                 return graphicsFamily.has_value() && presentFamily.has_value();

@@ -11,7 +11,6 @@
 #include <engine/PushConstants.h>
 #include <external/freetype/include/ft2build.h>
 #include FT_FREETYPE_H
-#include <engine/io.h>
 #include <variant>
 #include <functional>
 #include <string>
@@ -66,6 +65,7 @@ namespace engine {
         bool isEnabled() const { return enabled; }
         void setEnabled(bool enabled) { this->enabled = enabled; }
         const glm::vec4& getTint() const { return tint; }
+        void setTint(const glm::vec4& tint) { this->tint = tint; }
         const Corner& getAnchorCorner() const { return anchorCorner; }
         glm::vec2 getScale() const;
         const UIType& getType() const { return type; }
@@ -106,7 +106,7 @@ namespace engine {
         void setTransform(const glm::mat4& transform) { this->transform = transform; }
 
         const std::string& getTexture() const { return texture; }
-        void setTexture(const std::string& texture) { this->texture = texture; }
+        void setTexture(const std::string& texture) { this->texture = texture; textureDirtyFrames = -1; }
 
         const std::vector<VkDescriptorSet>& getDescriptorSets() const { return descriptorSets; }
         void setDescriptorSets(const std::vector<VkDescriptorSet>& descriptorSets) { this->descriptorSets = descriptorSets; }
@@ -120,6 +120,8 @@ namespace engine {
         void setParent(UIObject* parent) { this->parent = parent; }
 
         void loadTexture();
+        void loadTextureForFrame(uint32_t frame);
+        bool isTextureDirty() const { return textureDirtyFrames != 0; }
 
         void setEnabled(bool enabled) { this->enabled = enabled; }
         bool isEnabled() const { return enabled; }
@@ -161,6 +163,7 @@ namespace engine {
         std::function<void()>* onHover;
         std::function<void()>* onStopHover;
         bool enabled = true;
+        int textureDirtyFrames = 0;
     };
 
     class ButtonObject : public UIObject {
@@ -226,8 +229,10 @@ namespace engine {
             const Corner& anchorCorner = Corner::Center,
             std::string textSuffix = "",
             bool isInteger = false,
-            float textMultiplier = 1.0f
-        ) : UIObject(uiManager, transform, name, glm::vec4(1.0f), "ui_slider_background", anchorCorner, nullptr, nullptr, UIType::Slider), minValue(minValue), maxValue(maxValue), boundValue(boundValue), isInteger(isInteger), textSuffix(textSuffix), textMultiplier(textMultiplier) {
+            float textMultiplier = 1.0f,
+            float overrideValue = 0.0f,
+            std::string overrideText = ""
+        ) : UIObject(uiManager, transform, name, glm::vec4(1.0f), "ui_slider_background", anchorCorner, nullptr, nullptr, UIType::Slider), minValue(minValue), maxValue(maxValue), boundValue(boundValue), isInteger(isInteger), textSuffix(textSuffix), textMultiplier(textMultiplier), overrideValue(overrideValue), overrideText(std::move(overrideText)) {
                 knobObject = new UIObject(
                     uiManager,
                     glm::scale(glm::mat4(1.0f), glm::vec3(0.04f, 0.04f, 1.0f)),
@@ -247,11 +252,7 @@ namespace engine {
                     Corner::Right
                 );
                 this->addChild(valueTextObject);
-                if (isInteger) {
-                    valueTextObject->setText(std::to_string(static_cast<int>(boundValue * textMultiplier + 0.5f)) + textSuffix);
-                } else {
-                    valueTextObject->setText(std::to_string(boundValue * textMultiplier) + textSuffix);
-                }
+                refreshValueText();
                 computeSliderDesignWidth();
                 updateKnobPosition();
             }
@@ -259,11 +260,7 @@ namespace engine {
         void setValue(float value) {
             boundValue = glm::clamp(value, minValue, maxValue);
             updateKnobPosition();
-            if (isInteger) {
-                valueTextObject->setText(std::to_string(static_cast<int>(boundValue * textMultiplier + 0.5f)) + textSuffix);
-            } else {
-                valueTextObject->setText(std::to_string(boundValue * textMultiplier) + textSuffix);
-            }
+            refreshValueText();
         }
 
         float getValue() const {
@@ -283,7 +280,20 @@ namespace engine {
         float textMultiplier = 1.0f;
         float sliderDesignWidth = 1.0f;
         float sliderDesignPosX = 0.0f;
-        
+        float overrideValue = 0.0f;
+        std::string overrideText;
+
+        void refreshValueText() {
+            float compareValue = isInteger ? static_cast<float>(static_cast<int>(boundValue + 0.5f)) : boundValue;
+            if (!overrideText.empty() && compareValue <= overrideValue) {
+                valueTextObject->setText(overrideText);
+            } else if (isInteger) {
+                valueTextObject->setText(std::to_string(static_cast<int>(boundValue * textMultiplier + 0.5f)) + textSuffix);
+            } else {
+                valueTextObject->setText(std::to_string(boundValue * textMultiplier) + textSuffix);
+            }
+        }
+
         void updateKnobPosition() {
             float ratio = (boundValue - minValue) / (maxValue - minValue);
             float knobScaleX = knobObject->getTransform()[0][0];
@@ -320,7 +330,7 @@ namespace engine {
 
     class UIManager {
     public:
-        UIManager(Renderer* renderer, const std::string& fontDirectory);
+        UIManager(Renderer* renderer);
         ~UIManager();
 
         void addObject(UIObject* object);
@@ -334,6 +344,7 @@ namespace engine {
         void renderUI(VkCommandBuffer commandBuffer, uint32_t frameIndex);
         void clear();
         void loadTextures();
+        void reloadFontDescriptorSets();
         void loadFonts();
         UIObject* processMouseMovement(GLFWwindow* window, double xpos, double ypos);
 
@@ -349,7 +360,7 @@ namespace engine {
                 glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.1f, 0.1f, 1.0f)), glm::vec3(0.0f, 0.0f, -10.0f)),
                 "controllerCursor",
                 glm::vec4(1.0f),
-                "ui_cursor",
+                "ui_cursor_cursor",
                 Corner::TopLeft
             );
             cursor->setEnabled(false);
@@ -385,7 +396,6 @@ namespace engine {
         std::unordered_map<std::string, Font> fonts;
         UIObject* cursor = nullptr;
         bool showCursor = false;
-        std::string fontDirectory = "";
         std::vector<std::string> pendingRemovals;
     };
 };

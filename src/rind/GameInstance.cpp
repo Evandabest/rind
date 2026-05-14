@@ -1,8 +1,11 @@
 #include <rind/GameInstance.h>
 
+#include <cstdio>
+#include <cstdlib>
+
 #include <engine/Camera.h>
-#include <engine/Light.h>
-#include <engine/IrradianceProbe.h>
+#include <engine/LightManager.h>
+#include <engine/IrradianceManager.h>
 #include <engine/EntityManager.h>
 #include <engine/UIManager.h>
 #include <engine/ModelManager.h>
@@ -13,6 +16,51 @@
 #include <rind/FlyingEnemy.h>
 #include <rind/BashingEnemy.h>
 #include <rind/EnemySpawner.h>
+#include <rind/FlyingBoss.h>
+#include <rind/BashingBoss.h>
+#include <rind/GrenadeBoss.h>
+#include <rind/MissileBoss.h>
+
+namespace {
+    // Drives a UIObject's texture through the ui_thinking_### frames, looping.
+    // Lives as an empty Entity so EntityManager::updateAll ticks it each frame;
+    // both it and the UIObject are torn down by SceneManager::setActiveScene.
+    class ThinkingGifAnimator : public engine::Entity {
+    public:
+        ThinkingGifAnimator(
+            engine::EntityManager* entityManager,
+            const std::string& name,
+            engine::UIObject* target,
+            int frameCount,
+            float secondsPerFrame
+        ) : engine::Entity(entityManager, name, "", glm::mat4(1.0f), {}, false,
+                           engine::Entity::EntityType::Empty),
+            target(target), frameCount(frameCount), secondsPerFrame(secondsPerFrame) {}
+
+        void update(float deltaTime) override {
+            if (!target || frameCount <= 0) return;
+            elapsed += deltaTime;
+            while (elapsed >= secondsPerFrame) {
+                elapsed -= secondsPerFrame;
+                frameIndex = (frameIndex + 1) % frameCount;
+            }
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "ui_thinking_%03d", frameIndex);
+            if (target->getTexture() != buf) {
+                // setTexture flags the descriptor sets dirty; UIManager::renderUI
+                // calls loadTextureForFrame per frame-in-flight to update them safely.
+                target->setTexture(buf);
+            }
+        }
+
+    private:
+        engine::UIObject* target;
+        int frameCount;
+        float secondsPerFrame;
+        float elapsed = 0.0f;
+        int frameIndex = 0;
+    };
+}
 
 rind::GameInstance::GameInstance() {
     std::function<void(engine::Renderer*)> titleScreenScene = [](engine::Renderer* renderer){
@@ -21,6 +69,8 @@ rind::GameInstance::GameInstance() {
         engine::EntityManager* entityManager = renderer->getEntityManager();
         engine::ModelManager* modelManager = renderer->getModelManager();
         engine::SceneManager* sceneManager = renderer->getSceneManager();
+        engine::LightManager* lightManager = renderer->getLightManager();
+        engine::IrradianceManager* irradianceManager = renderer->getIrradianceManager();
         engine::UIObject* logoObject = new engine::UIObject(
             uiManager,
             glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.5f, -0.5f, 1.0f)), glm::vec3(0.0f, -200.0f, 0.0f)),
@@ -28,6 +78,23 @@ rind::GameInstance::GameInstance() {
             glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
             "ui_logo_light",
             engine::Corner::Center
+        );
+        engine::UIObject* thinkingGifObject = new engine::UIObject(
+            uiManager,
+            glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(450.0f, -100.0f, 0.0f)), glm::vec3(3.0f, -3.0f, 1.0f)),
+            "ThinkingGif",
+            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+            "ui_thinking_000",
+            engine::Corner::Center
+        );
+        constexpr int kThinkingFrameCount = 52;
+        constexpr float kThinkingSecondsPerFrame = 0.13f;
+        new ThinkingGifAnimator(
+            entityManager,
+            "ThinkingGifAnimator",
+            thinkingGifObject,
+            kThinkingFrameCount,
+            kThinkingSecondsPerFrame
         );
         engine::ButtonObject* startButton = new engine::ButtonObject(
             uiManager,
@@ -39,7 +106,7 @@ rind::GameInstance::GameInstance() {
             "START",
             "Lato",
             [sceneManager]() {
-                sceneManager->setActiveScene(1);
+                sceneManager->setActiveSceneDeferred(1);
             }
         );
         engine::ButtonObject* quitButton = new engine::ButtonObject(
@@ -55,15 +122,39 @@ rind::GameInstance::GameInstance() {
                 std::exit(0);
             }
         );
-        std::function<void()> settingsCallback = [renderer, logoObject, startButton, quitButton]() {
+        engine::ButtonObject* rickRollButton = new engine::ButtonObject(
+            uiManager,
+            glm::scale(glm::translate(glm::mat4(1.0), glm::vec3(0.0f, -250.0f, 0.0f)), glm::vec3(0.12, 0.04, 1.0)),
+            "RickRollButton",
+            glm::vec4(0.5f, 0.5f, 0.6f, 1.0f),
+            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+            "ui_window",
+            "???",
+            "Lato",
+            []() {
+#if defined(_WIN32)
+                std::system("start \"\" \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"");
+#elif defined(__APPLE__)
+                std::system("open \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"");
+#else
+                std::system("xdg-open \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\"");
+#endif
+            }
+        );
+        std::function<void()> settingsCallback = [renderer, logoObject, startButton, quitButton, rickRollButton, thinkingGifObject]() {
             renderer->getSettingsManager()->showSettingsUI();
             renderer->getUIManager()->removeObject(logoObject->getName());
             renderer->getUIManager()->removeObject(startButton->getName());
             renderer->getUIManager()->removeObjectDeferred("SettingsButton");
             renderer->getUIManager()->removeObject(quitButton->getName());
+            renderer->getUIManager()->removeObject(rickRollButton->getName());
+            renderer->getUIManager()->removeObject(thinkingGifObject->getName());
+            renderer->getEntityManager()->markForDeletion(
+                renderer->getEntityManager()->getEntity("ThinkingGifAnimator")
+            );
             renderer->getSettingsManager()->setUIOnClose(
                 [renderer](){
-                    renderer->getSceneManager()->setActiveScene(0);
+                    renderer->getSceneManager()->setActiveSceneDeferred(0);
                 }
             );
         };
@@ -141,37 +232,51 @@ rind::GameInstance::GameInstance() {
             engine::Entity::EntityType::Static
         );
         playerEntity->setModel(playerModel);
-        engine::Light* sceneLight = new engine::Light(
-            entityManager,
+        lightManager->addLight(
             "titleLight",
-            glm::translate(glm::mat4(1.0f), glm::vec3(-3.0f, 1.5f, -4.0f)),
-            glm::vec3(1.0f, 0.5f, 0.5f),
-            0.25f,
-            30.0f,
-            false
+            glm::translate(glm::mat4(1.0f), glm::vec3(-3.0f, 3.5f, -4.0f)),
+            glm::vec3(1.0f, 0.0f, 0.0f),
+            0.3f,
+            200.0f
         );
-        engine::Light* sceneLight2 = new engine::Light(
-            entityManager,
+        lightManager->addLight(
             "titleLight2",
             glm::translate(glm::mat4(1.0f), glm::vec3(2.0f, 1.0f, 1.0f)),
             glm::vec3(0.5f, 0.5f, 1.0f),
             0.75f,
-            15.0f,
-            false
+            30.0f
         );
-        engine::Light* sceneLight3 = new engine::Light(
-            entityManager,
+        lightManager->addLight(
             "titleLight3",
-            glm::translate(glm::mat4(1.0f), glm::vec3(-30.0f, 2.0f, 0.0f)),
-            glm::vec3(1.0f, 1.0f, 1.0f),
+            glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 9.0f, -30.0f)),
+            glm::vec3(1.0f),
             2.0f,
-            200.0f,
-            false
+            50.0f
+        );
+        lightManager->addLight(
+            "titleLight4",
+            glm::translate(glm::mat4(1.0f), glm::vec3(-15.0f, 12.0f, -50.0f)),
+            glm::vec3(1.0f),
+            1.5f,
+            70.0f
+        );
+        lightManager->addLight(
+            "titleLight5",
+            glm::translate(glm::mat4(1.0f), glm::vec3(-5.0f, 4.0f, -50.0f)),
+            glm::vec3(1.0f),
+            1.0f,
+            50.0f
+        );
+        lightManager->addLight(
+            "titleLight5",
+            glm::translate(glm::mat4(1.0f), glm::vec3(-2.5f, 2.0f, 0.5f)),
+            glm::vec3(1.0f),
+            5.0f,
+            4.0f
         );
         for (int i = -2; i <= 2; i++) {
             for (int j = -2; j <= 2; j++) {
-                engine::IrradianceProbe* probe = new engine::IrradianceProbe(
-                    entityManager,
+                irradianceManager->addIrradianceProbe(
                     "titleProbe" + std::to_string(i) + std::to_string(j),
                     glm::translate(glm::mat4(1.0f), glm::vec3(i * 6.0f, 1.0f, j * 6.0f)),
                     10.0f
@@ -187,6 +292,8 @@ rind::GameInstance::GameInstance() {
         engine::ModelManager* modelManager = renderer->getModelManager();
         engine::SceneManager* sceneManager = renderer->getSceneManager();
         engine::EntityManager* entityManager = renderer->getEntityManager();
+        engine::LightManager* lightManager = renderer->getLightManager();
+        engine::IrradianceManager* irradianceManager = renderer->getIrradianceManager();
         engine::UIManager* uiManager = renderer->getUIManager();
         std::vector<std::string> rockMaterial = {
             "materials_rock_albedo",
@@ -304,22 +411,28 @@ rind::GameInstance::GameInstance() {
             entityManager,
             "lightObject1",
             "gbuffer",
-            glm::translate(glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)), engine::blenderRemap(glm::vec3(13.5296f, -13.3857f, -0.136268f))),
+            glm::translate(
+                glm::scale(
+                    glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)
+                ), engine::blenderRemap(glm::vec3(13.5296f, -13.3857f, -0.136268f))
+            ),
             lightMaterial,
             false,
             engine::Entity::EntityType::Static
         );
         lightObject1->setModel(lightModel);
-        engine::Light* light = new engine::Light(
-            entityManager,
+        lightManager->addLight(
             "light1",
-            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f)),
+            glm::translate(
+                glm::scale(
+                    glm::mat4(1.0f),
+                    glm::vec3(1.5f, 1.5f, 1.5f)
+                ), engine::blenderRemap(glm::vec3(13.5296f, -13.3857f, -0.136268f))
+            ),
             glm::vec3(1.0f),
             5.0f,
-            150.0f,
-            false
+            150.0f
         );
-        lightObject1->addChild(light);
         
         engine::ConvexHullCollider* lightCollider = new engine::ConvexHullCollider(
             entityManager,
@@ -338,22 +451,29 @@ rind::GameInstance::GameInstance() {
             entityManager,
             "lightObject2",
             "gbuffer",
-            glm::translate(glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)), engine::blenderRemap(glm::vec3(13.5296f, 13.6124f, -0.136268f))),
+            glm::translate(
+                glm::scale(
+                    glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)),
+                    glm::vec3(1.5f, 1.5f, 1.5f)
+                ), engine::blenderRemap(glm::vec3(13.5296f, 13.6124f, -0.136268f))
+            ),
             lightMaterial,
             false,
             engine::Entity::EntityType::Static
         );
         lightObject2->setModel(lightModel);
-        engine::Light* light2 = new engine::Light(
-            entityManager,
+        lightManager->addLight(
             "light2",
-            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f)),
+            glm::translate(
+                glm::scale(
+                    glm::mat4(1.0f),
+                    glm::vec3(1.5f, 1.5f, 1.5f)
+                ), engine::blenderRemap(glm::vec3(13.5296f, 13.6124f, -0.136268f))
+            ),
             glm::vec3(1.0f),
             5.0f,
-            150.0f,
-            false
+            150.0f
         );
-        lightObject2->addChild(light2);
 
         engine::ConvexHullCollider* light2Collider = new engine::ConvexHullCollider(
             entityManager,
@@ -371,22 +491,29 @@ rind::GameInstance::GameInstance() {
             entityManager,
             "lightObject3",
             "gbuffer",
-            glm::translate(glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)), engine::blenderRemap(glm::vec3(-13.365f, 13.6124f, -0.136268f))),
+            glm::translate(
+                glm::scale(
+                    glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)),
+                    glm::vec3(1.5f, 1.5f, 1.5f)
+                ), engine::blenderRemap(glm::vec3(-13.365f, 13.6124f, -0.136268f))
+            ),
             lightMaterial,
             false,
             engine::Entity::EntityType::Static
         );
         lightObject3->setModel(lightModel);
-        engine::Light* light3 = new engine::Light(
-            entityManager,
+        lightManager->addLight(
             "light3",
-            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f)),
+            glm::translate(
+                glm::scale(
+                    glm::mat4(1.0f),
+                    glm::vec3(1.5f, 1.5f, 1.5f)
+                ), engine::blenderRemap(glm::vec3(-13.365f, 13.6124f, -0.136268f))
+            ),
             glm::vec3(1.0f),
             5.0f,
-            150.0f,
-            false
+            150.0f
         );
-        lightObject3->addChild(light3);
 
         engine::ConvexHullCollider* light3Collider = new engine::ConvexHullCollider(
             entityManager,
@@ -404,22 +531,29 @@ rind::GameInstance::GameInstance() {
             entityManager,
             "lightObject4",
             "gbuffer",
-            glm::translate(glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)), glm::vec3(1.5f, 1.5f, 1.5f)), engine::blenderRemap(glm::vec3(-13.365f, -13.3857f, -0.136268f))),
+            glm::translate(
+                glm::scale(
+                    glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.5f, 0.0f)),
+                    glm::vec3(1.5f, 1.5f, 1.5f)
+                ), engine::blenderRemap(glm::vec3(-13.365f, -13.3857f, -0.136268f))
+            ),
             lightMaterial,
             false,
             engine::Entity::EntityType::Static
         );
         lightObject4->setModel(lightModel);
-        engine::Light* light4 = new engine::Light(
-            entityManager,
+        lightManager->addLight(
             "light4",
-            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f)),
+            glm::translate(
+                glm::scale(
+                    glm::mat4(1.0f),
+                    glm::vec3(1.5f, 1.5f, 1.5f)
+                ), engine::blenderRemap(glm::vec3(-13.365f, -13.3857f, -0.136268f))
+            ),
             glm::vec3(1.0f),
             5.0f,
-            150.0f,
-            false
+            150.0f
         );
-        lightObject4->addChild(light4);
 
         engine::ConvexHullCollider* light4Collider = new engine::ConvexHullCollider(
             entityManager,
@@ -447,7 +581,7 @@ rind::GameInstance::GameInstance() {
             glm::translate(glm::mat4(1.0f), glm::vec3(-50.0f, -25.0f, 0.0f)),
             2,
             2,
-            8.0f
+            9.0f
         );
         rind::EnemySpawner<rind::FlyingEnemy>* enemySpawner2 = new rind::EnemySpawner<rind::FlyingEnemy>(
             entityManager,
@@ -467,15 +601,58 @@ rind::GameInstance::GameInstance() {
             glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -25.0f, 50.0f)),
             1,
             1,
-            5.5f
+            6.5f
+        );
+        rind::EnemySpawner<rind::FlyingBoss>* enemySpawner4 = new rind::EnemySpawner<rind::FlyingBoss>(
+            entityManager,
+            this,
+            player,
+            "flyingBossSpawner",
+            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -25.0f, 50.0f)),
+            0,
+            1,
+            8.0f,
+            0.1f
+        );
+        rind::EnemySpawner<rind::BashingBoss>* enemySpawner5 = new rind::EnemySpawner<rind::BashingBoss>(
+            entityManager,
+            this,
+            player,
+            "bashingBossSpawner",
+            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -25.0f, 50.0f)),
+            0,
+            1,
+            8.0f,
+            0.1f
+        );
+        rind::EnemySpawner<rind::GrenadeBoss>* enemySpawner6 = new rind::EnemySpawner<rind::GrenadeBoss>(
+            entityManager,
+            this,
+            player,
+            "grenadeBossSpawner",
+            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -25.0f, 50.0f)),
+            0,
+            1,
+            8.0f,
+            0.05f
+        );
+        rind::EnemySpawner<rind::MissileBoss>* enemySpawner7 = new rind::EnemySpawner<rind::MissileBoss>(
+            entityManager,
+            this,
+            player,
+            "missileBossSpawner",
+            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -25.0f, 50.0f)),
+            0,
+            1,
+            9.0f,
+            0.05f
         );
 
         for (int i = -3; i <= 3; ++i) {
             for (int j = -3; j <= 3; ++j) {
-                engine::IrradianceProbe* probe = new engine::IrradianceProbe(
-                    entityManager,
+                irradianceManager->addIrradianceProbe(
                     "gameProbe" + std::to_string(i) + std::to_string(j),
-                    glm::translate(glm::mat4(1.0f), glm::vec3(i * 8.0f, 5.0f, j * 8.0f)),
+                    glm::translate(glm::mat4(1.0f), glm::vec3(i * 8.0f, 4.0f, j * 8.0f)),
                     8.0f
                 );
             }
@@ -492,15 +669,17 @@ rind::GameInstance::GameInstance() {
     scenes.emplace_back(std::make_unique<engine::Scene>(mainGameScene));
 
     entityManager = std::make_unique<engine::EntityManager>(renderer.get());
+    lightManager = std::make_unique<engine::LightManager>(renderer.get());
+    irradianceManager = std::make_unique<engine::IrradianceManager>(renderer.get());
     inputManager = std::make_unique<engine::InputManager>(renderer.get());
     sceneManager = std::make_unique<engine::SceneManager>(renderer.get(), std::move(scenes));
-    textureManager = std::make_unique<engine::TextureManager>(renderer.get(), "src/assets/textures/");
-    shaderManager = std::make_unique<engine::ShaderManager>(renderer.get(), "src/assets/shaders/compiled/");
-    uiManager = std::make_unique<engine::UIManager>(renderer.get(), "src/assets/fonts/");
-    modelManager = std::make_unique<engine::ModelManager>(renderer.get(), "src/assets/models/");
+    textureManager = std::make_unique<engine::TextureManager>(renderer.get());
+    shaderManager = std::make_unique<engine::ShaderManager>(renderer.get());
+    uiManager = std::make_unique<engine::UIManager>(renderer.get());
+    modelManager = std::make_unique<engine::ModelManager>(renderer.get());
     particleManager = std::make_unique<engine::ParticleManager>(renderer.get());
     volumetricManager = std::make_unique<engine::VolumetricManager>(renderer.get());
-    audioManager = std::make_unique<engine::AudioManager>(renderer.get(), "src/assets/audio/");
+    audioManager = std::make_unique<engine::AudioManager>(renderer.get());
     settingsManager = std::make_unique<engine::SettingsManager>(renderer.get(),
         std::vector<engine::SettingsManager::SettingsDefinition>{
             {
@@ -517,6 +696,8 @@ rind::GameInstance::GameInstance() {
 rind::GameInstance::~GameInstance() {
     entityManager->clear();
     uiManager->clear();
+    lightManager->clear();
+    irradianceManager->clear();
     particleManager->clear();
     volumetricManager->clear();
 }
