@@ -1,5 +1,7 @@
 #include <rind/GameInstance.h>
 
+#include <cstdio>
+
 #include <engine/Camera.h>
 #include <engine/LightManager.h>
 #include <engine/IrradianceManager.h>
@@ -18,6 +20,47 @@
 #include <rind/GrenadeBoss.h>
 #include <rind/MissileBoss.h>
 
+namespace {
+    // Drives a UIObject's texture through the ui_thinking_### frames, looping.
+    // Lives as an empty Entity so EntityManager::updateAll ticks it each frame;
+    // both it and the UIObject are torn down by SceneManager::setActiveScene.
+    class ThinkingGifAnimator : public engine::Entity {
+    public:
+        ThinkingGifAnimator(
+            engine::EntityManager* entityManager,
+            const std::string& name,
+            engine::UIObject* target,
+            int frameCount,
+            float secondsPerFrame
+        ) : engine::Entity(entityManager, name, "", glm::mat4(1.0f), {}, false,
+                           engine::Entity::EntityType::Empty),
+            target(target), frameCount(frameCount), secondsPerFrame(secondsPerFrame) {}
+
+        void update(float deltaTime) override {
+            if (!target || frameCount <= 0) return;
+            elapsed += deltaTime;
+            while (elapsed >= secondsPerFrame) {
+                elapsed -= secondsPerFrame;
+                frameIndex = (frameIndex + 1) % frameCount;
+            }
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "ui_thinking_%03d", frameIndex);
+            if (target->getTexture() != buf) {
+                // setTexture flags the descriptor sets dirty; UIManager::renderUI
+                // calls loadTextureForFrame per frame-in-flight to update them safely.
+                target->setTexture(buf);
+            }
+        }
+
+    private:
+        engine::UIObject* target;
+        int frameCount;
+        float secondsPerFrame;
+        float elapsed = 0.0f;
+        int frameIndex = 0;
+    };
+}
+
 rind::GameInstance::GameInstance() {
     std::function<void(engine::Renderer*)> titleScreenScene = [](engine::Renderer* renderer){
         // Title screen UI setup
@@ -34,6 +77,23 @@ rind::GameInstance::GameInstance() {
             glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
             "ui_logo_light",
             engine::Corner::Center
+        );
+        engine::UIObject* thinkingGifObject = new engine::UIObject(
+            uiManager,
+            glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(450.0f, -100.0f, 0.0f)), glm::vec3(3.0f, -3.0f, 1.0f)),
+            "ThinkingGif",
+            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+            "ui_thinking_000",
+            engine::Corner::Center
+        );
+        constexpr int kThinkingFrameCount = 52;
+        constexpr float kThinkingSecondsPerFrame = 0.13f;
+        new ThinkingGifAnimator(
+            entityManager,
+            "ThinkingGifAnimator",
+            thinkingGifObject,
+            kThinkingFrameCount,
+            kThinkingSecondsPerFrame
         );
         engine::ButtonObject* startButton = new engine::ButtonObject(
             uiManager,
@@ -61,12 +121,16 @@ rind::GameInstance::GameInstance() {
                 std::exit(0);
             }
         );
-        std::function<void()> settingsCallback = [renderer, logoObject, startButton, quitButton]() {
+        std::function<void()> settingsCallback = [renderer, logoObject, startButton, quitButton, thinkingGifObject]() {
             renderer->getSettingsManager()->showSettingsUI();
             renderer->getUIManager()->removeObject(logoObject->getName());
             renderer->getUIManager()->removeObject(startButton->getName());
             renderer->getUIManager()->removeObjectDeferred("SettingsButton");
             renderer->getUIManager()->removeObject(quitButton->getName());
+            renderer->getUIManager()->removeObject(thinkingGifObject->getName());
+            renderer->getEntityManager()->markForDeletion(
+                renderer->getEntityManager()->getEntity("ThinkingGifAnimator")
+            );
             renderer->getSettingsManager()->setUIOnClose(
                 [renderer](){
                     renderer->getSceneManager()->setActiveSceneDeferred(0);
