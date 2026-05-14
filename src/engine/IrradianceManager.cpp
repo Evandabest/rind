@@ -1156,7 +1156,7 @@ void engine::IrradianceManager::updateIrradianceProbesUBO(uint32_t frameIndex) {
         createIrradianceProbesUBO();
     }
     if (frameIndex >= irradianceBuffers.size() || irradianceBuffers[frameIndex] == VK_NULL_HANDLE) {
-        std::cout << std::format("Warning: Irradiance Probes UBO buffer unavailable for frame {}. Skipping irradiance probes update.\n", frameIndex);
+        std::cout << "Warning: Irradiance Probes UBO buffer unavailable for frame " << frameIndex << ". Skipping irradiance probes update.\n";
         return;
     }
     IrradianceProbesUBO* irradianceProbesUBO = static_cast<IrradianceProbesUBO*>(irradianceBuffersMapped[frameIndex]);

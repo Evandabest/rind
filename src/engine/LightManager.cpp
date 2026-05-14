@@ -777,7 +777,7 @@ void engine::LightManager::updateLightsUBO(uint32_t frameIndex) {
         createLightsUBO();
     }
     if (frameIndex >= lightsBuffers.size() || lightsBuffers[frameIndex] == VK_NULL_HANDLE) {
-        std::cout << std::format("Warning: Lights UBO buffer unavailable for frame {}. Skipping lights update.\n", frameIndex);
+        std::cout << "Warning: Lights UBO buffer unavailable for frame " << frameIndex << ". Skipping lights update.\n";
         return;
     }
     if (lightsDirty.size() < lightsBuffers.size()) {

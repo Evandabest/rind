@@ -542,12 +542,12 @@ void engine::EntityManager::loadTextures() {
             if (!found && i < defaultTextures.size()) {
                 found = textureManager->getTexture(defaultTextures[i]);
                 if (found) {
-                    std::cout << std::format("Warning: Texture {} for Entity {} not found. Using default texture {} instead.\n", textures[i], name, defaultTextures[i]);
+                    std::cout << "Warning: Texture " << textures[i] << " for Entity " << name << " not found. Using default texture " << defaultTextures[i] << " instead.\n";
                 } else {
-                    std::cout << std::format("Warning: Texture {} for Entity {} not found. No default texture available.\n", textures[i], name);
+                    std::cout << "Warning: Texture " << textures[i] << " for Entity " << name << " not found. No default texture available.\n";
                 }
             } else if (!found) {
-                std::cout << std::format("Warning: Texture {} for Entity {} not found.\n", textures[i], name);
+                std::cout << "Warning: Texture " << textures[i] << " for Entity " << name << " not found.\n";
                 continue;
             }
             texturePtrs.push_back(found);
@@ -557,7 +557,7 @@ void engine::EntityManager::loadTextures() {
                 Texture* defaultTex = textureManager->getTexture(defaultTextures[i]);
                 if (defaultTex) {
                     texturePtrs.push_back(defaultTex);
-                    std::cout << std::format("Warning: Not enough textures for Entity {}. Using default texture {}.\n", name, defaultTextures[i]);
+                    std::cout << "Warning: Not enough textures for Entity " << name << ". Using default texture " << defaultTextures[i] << ".\n";
                 }
             }
         }
@@ -582,7 +582,7 @@ void engine::EntityManager::loadTextures() {
             }
         }
         if (texturePtrs.size() < requiredTextures) {
-            std::cout << std::format("Error: Not enough textures for Entity {}. Expected {} image bindings, got {}. Skipping descriptor set creation.\n", name, requiredTextures, texturePtrs.size());
+            std::cout << "Error: Not enough textures for Entity " << name << ". Expected " << requiredTextures << " image bindings, got " << texturePtrs.size() << ". Skipping descriptor set creation.\n";
             continue;
         }
         entity->ensureUniformBuffers(renderer, shader);

@@ -144,11 +144,16 @@ elseif(IS_WINDOWS)
 else() # Linux
   find_program(DXC_EXECUTABLE dxc
         HINTS
+            ${CMAKE_SOURCE_DIR}/bin
             ${VK_SDK_PATH}/bin
             $ENV{VULKAN_SDK}/bin
             /usr/bin
             /usr/local/bin
+        NO_DEFAULT_PATH
     )
+  if(NOT DXC_EXECUTABLE)
+    find_program(DXC_EXECUTABLE dxc)
+  endif()
 endif()
 
 if(NOT DXC_EXECUTABLE)
