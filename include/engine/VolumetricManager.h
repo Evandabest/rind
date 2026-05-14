@@ -1,6 +1,7 @@
 #pragma once
 
 #define GLM_ENABLE_EXPERIMENTAL
+#include <cmath>
 #include <engine/Renderer.h>
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtx/quaternion.hpp>
@@ -8,17 +9,22 @@
 namespace engine {
     class VolumetricManager;
     struct VolumetricGPU {
-        glm::mat4 model;
-        glm::mat4 invModel;
-        glm::vec4 color; // w = density
-        float age;
-        float lifetime;
-        float pad[2];
+        alignas(16) glm::mat4 model;
+        alignas(16) glm::mat4 invModel;
+        alignas(16) glm::vec4 color; // w = density
+        alignas(4) float age;
+        alignas(4) float lifetime;
+        alignas(4) uint32_t pad[2]{0, 0};
     };
     class Volumetric {
     public:
-        Volumetric(VolumetricManager* volumetricManager, const glm::mat4& initialTransform, const glm::mat4& finalTransform, const glm::vec4& color, float lifetime);
-        ~Volumetric();
+        Volumetric(
+            const glm::mat4& initialTransform,
+            const glm::mat4& finalTransform,
+            const glm::vec4& color,
+            float lifetime,
+            float acceleration = 2.0f
+        );
         const glm::vec4& getColor() const { return color; }
         void setColor(const glm::vec4& color) { this->color = color; }
         float getLifetime() const { return lifetime; }
@@ -27,7 +33,7 @@ namespace engine {
         void setAge(float age) { this->age = age; }
         VolumetricGPU getGPUData() const {
             float t = age / std::max(lifetime, 0.0001f);
-            float eased = 1.0f - (1.0f - t) * (1.0f - t);
+            float eased = 1.0f - std::pow(1.0f - t, std::max(acceleration, 0.0001f));
 
             glm::vec3 scaleA, scaleB, transA, transB, skew;
             glm::vec4 persp;
@@ -51,16 +57,14 @@ namespace engine {
 
         const glm::mat4& getFinalTransform() const { return finalTransform; }
 
-        void detachFromManager() { volumetricManager = nullptr; }
-
         void markForDeletion() { markedForDeletion = true; }
         bool isMarkedForDeletion() const { return markedForDeletion; }
     private:
-        VolumetricManager* volumetricManager;
         glm::mat4 initialTransform;
         glm::mat4 finalTransform;
         glm::vec4 color;
         float lifetime;
+        float acceleration = 2.0f;
         float age = 0.0f;
         bool markedForDeletion = false;
     };
@@ -71,19 +75,15 @@ namespace engine {
         void init();
         void clear();
 
-        void createVolumetric(const glm::mat4& initialTransform, const glm::mat4& finalTransform, const glm::vec4& color, float lifetime) {
+        void createVolumetric(const glm::mat4& initialTransform, const glm::mat4& finalTransform, const glm::vec4& color, float lifetime, float acceleration = 2.0f) {
             if (volumetrics.size() >= hardCap) return;
-            new Volumetric(this, initialTransform, finalTransform, color, lifetime);
-        }
-        void registerVolumetric(Volumetric* volumetric) { volumetrics.push_back(volumetric); }
-        void unregisterVolumetric(Volumetric* volumetric) {
-            volumetrics.erase(std::remove(volumetrics.begin(), volumetrics.end(), volumetric), volumetrics.end());
+            volumetrics.emplace_back(initialTransform, finalTransform, color, lifetime, acceleration);
         }
 
         void updateVolumetricBuffer(uint32_t currentFrame);
         void createVolumetricDescriptorSets();
         std::vector<VkDescriptorSet> getDescriptorSets() const { return descriptorSets; }
-        std::vector<Volumetric*> getVolumetrics() const { return volumetrics; }
+        std::vector<Volumetric> getVolumetrics() const { return volumetrics; }
 
         void updateAll(float deltaTime);
         void renderVolumetrics(VkCommandBuffer commandBuffer, uint32_t currentFrame);
@@ -91,7 +91,7 @@ namespace engine {
     private:
         engine::Renderer* renderer;
 
-        std::vector<Volumetric*> volumetrics;
+        std::vector<Volumetric> volumetrics;
         std::vector<VkBuffer> volumetricBuffers;
         std::vector<VkDeviceMemory> volumetricBufferMemory;
         std::vector<void*> volumetricBuffersMapped;
@@ -100,6 +100,7 @@ namespace engine {
         uint32_t visibleVolumetrics = 0;
         uint32_t maxVolumetrics = 100;
         uint32_t hardCap = 5000;
+        uint32_t frameCounter = 0;
 
         VkBuffer cubeVertexBuffer = VK_NULL_HANDLE;
         VkDeviceMemory cubeVertexBufferMemory = VK_NULL_HANDLE;

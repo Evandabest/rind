@@ -1,7 +1,8 @@
 #include <engine/UIManager.h>
+#include <engine/EmbeddedAssets.h>
+#include <font/font_registry.h>
 #include <algorithm>
 #include <utility>
-#include <filesystem>
 #include <limits>
 #include <engine/Renderer.h>
 #include <engine/AudioManager.h>
@@ -37,9 +38,11 @@ engine::UIObject::~UIObject() {
         uiManager->getRenderer()->setHoveredObject(nullptr);
     }
     if (!descriptorSets.empty()) {
-        VkDevice device = uiManager->getRenderer()->getDevice();
-        for (auto& descriptorSet : descriptorSets) {
-            vkFreeDescriptorSets(device, uiManager->getRenderer()->getShaderManager()->getGraphicsShader("ui")->descriptorPool, 1, &descriptorSet);
+        engine::Renderer* renderer = uiManager->getRenderer();
+        GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("ui");
+        if (shader && shader->descriptorPool != VK_NULL_HANDLE) {
+            vkFreeDescriptorSets(renderer->getDevice(), shader->descriptorPool,
+                static_cast<uint32_t>(descriptorSets.size()), descriptorSets.data());
         }
         descriptorSets.clear();
     }
@@ -132,6 +135,31 @@ void engine::UIObject::loadTexture() {
     } else {
         setDescriptorSets(shader->createDescriptorSets(renderer, textures, buffers));
     }
+    textureDirtyFrames = 0;
+}
+
+void engine::UIObject::loadTextureForFrame(uint32_t frame) {
+    if (texture.empty()) {
+        return;
+    }
+    engine::Renderer* renderer = getUIManager()->getRenderer();
+    GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("ui");
+    engine::Texture* texture = renderer->getTextureManager()->getTexture(getTexture());
+    if (!texture) {
+        return;
+    }
+    std::vector<Texture*> textures = { texture };
+    std::vector<VkBuffer> buffers;
+    if (!descriptorSets.empty()) {
+        shader->updateDescriptorSets(renderer, descriptorSets, textures, buffers, static_cast<int>(frame));
+    } else {
+        setDescriptorSets(shader->createDescriptorSets(renderer, textures, buffers));
+    }
+    if (textureDirtyFrames < 0) {
+        textureDirtyFrames = renderer->getMaxFramesInFlight() - 1;
+    } else if (textureDirtyFrames > 0) {
+        textureDirtyFrames--;
+    }
 }
 
 engine::ButtonObject::ButtonObject(
@@ -151,11 +179,17 @@ engine::ButtonObject::ButtonObject(
         setOnHover(new std::function<void()>([this]() {
             glm::vec4 currentTint = this->getTint();
             this->setTint(currentTint + glm::vec4(0.5f, 0.5f, 0.5f, 0.0f));
+            glm::vec4 textColor = std::get<TextObject*>(this->getChildren()[0])->getTint();
+            std::get<TextObject*>(this->getChildren()[0])->setTint(textColor + glm::vec4(0.5f, 0.5f, 0.5f, 0.0f));
+            audioManager->playSound("button_onhover", 0.4f, 0.1f, true);
             this->loadTexture();
         }));
         setOnStopHover(new std::function<void()>([this]() {
             glm::vec4 currentTint = this->getTint();
             this->setTint(currentTint - glm::vec4(0.5f, 0.5f, 0.5f, 0.0f));
+            glm::vec4 textColor = std::get<TextObject*>(this->getChildren()[0])->getTint();
+            std::get<TextObject*>(this->getChildren()[0])->setTint(textColor - glm::vec4(0.5f, 0.5f, 0.5f, 0.0f));
+            audioManager->playSound("button_offhover", 0.4f, 0.1f, true);
             this->loadTexture();
         }));
         audioManager = uiManager->getRenderer()->getAudioManager();
@@ -275,8 +309,8 @@ float engine::SliderObject::getSliderValueFromMouse(GLFWwindow* window) {
     return minValue + ratio * (maxValue - minValue);
 }
 
-engine::UIManager::UIManager(Renderer* renderer, const std::string& fontDirectory)
-    : renderer(renderer), fontDirectory(fontDirectory) {
+engine::UIManager::UIManager(Renderer* renderer)
+    : renderer(renderer) {
         renderer->registerUIManager(this);
     }
 
@@ -402,12 +436,18 @@ void engine::UIManager::clear() {
     auto roots = std::move(rootObjects);
     rootObjects.clear();
     objects.clear();
+    pendingRemovals.clear();
     cursor = nullptr;
     for (const auto& [name, obj] : roots) {
         if (std::holds_alternative<TextObject*>(obj)) {
             delete std::get<TextObject*>(obj);
         } else {
             delete std::get<UIObject*>(obj);
+        }
+    }
+    for (auto& [name, font] : fonts) {
+        for (auto& [ch, character] : font.characters) {
+            character.descriptorSets.clear();
         }
     }
 }
@@ -420,32 +460,34 @@ void engine::UIManager::loadTextures() {
     }
 }
 
+void engine::UIManager::reloadFontDescriptorSets() {
+    GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("text");
+    if (!shader) return;
+    for (auto& [name, font] : fonts) {
+        for (auto& [ch, character] : font.characters) {
+            if (!character.descriptorSets.empty()) continue;
+            std::vector<Texture*> textures = { character.texture };
+            std::vector<VkBuffer> buffers;
+            character.descriptorSets = shader->createDescriptorSets(renderer, textures, buffers);
+        }
+    }
+}
+
 void engine::UIManager::loadFonts() {
     FT_Library ft;
     if (FT_Init_FreeType(&ft)) {
         std::cout << "Error: Could not init FreeType Library\n";
         return;
     }
-    auto scanAndLoadFonts = [&](auto& self, const std::string& directory, std::string parentPath) -> void {
-        std::vector<std::string> fontFiles = engine::scanDirectory(directory);
-        for (const auto& filePath : fontFiles) {
-            if (std::filesystem::is_directory(filePath)) {
-                self(self, filePath, parentPath + std::filesystem::path(filePath).filename().string() + "_");
-                continue;
-            }
-            if (!std::filesystem::is_regular_file(filePath)) {
-                continue;
-            }
-            std::string fileName = std::filesystem::path(filePath).filename().string();
-            std::string fontName = parentPath + std::filesystem::path(fileName).stem().string();
+    const auto& embeddedFonts = getEmbedded_font();
+    for (const auto& [fontName, asset] : embeddedFonts) {
             if (fonts.find(fontName) != fonts.end()) {
-                std::cout << "Warning: Duplicate font name detected: " << fontName << ". Skipping " << filePath << "\n";
+                std::cout << "Warning: Duplicate font name detected: " << fontName << ". Skipping.\n";
                 continue;
             }
             FT_Face face;
-            if (FT_New_Face(ft, filePath.c_str(), 0, &face)) {
-                std::cout << "Error: Failed to load font " << filePath << "\n";
-                FT_Done_FreeType(ft);
+            if (FT_New_Memory_Face(ft, asset.data, static_cast<FT_Long>(asset.size), 0, &face)) {
+                std::cout << "Error: Failed to load embedded font " << fontName << "\n";
                 continue;
             }
             FT_Set_Pixel_Sizes(face, 0, 48);
@@ -553,10 +595,8 @@ void engine::UIManager::loadFonts() {
             }
             fonts.insert_or_assign(fontName, std::move(font));
             FT_Done_Face(face);
-            FT_Done_FreeType(ft);
-        }
-    };
-    scanAndLoadFonts(scanAndLoadFonts, fontDirectory, "");
+    }
+    FT_Done_FreeType(ft);
 }
 
 engine::LayoutRect engine::UIManager::resolveDesignRect(std::variant<UIObject*, TextObject*> node, const LayoutRect& parentRect) {
@@ -668,6 +708,9 @@ void engine::UIManager::renderUI(VkCommandBuffer commandBuffer, uint32_t frameIn
 
     auto drawUIObject = [&](UIObject* object, const LayoutRect& rect) -> void {
         if (!object->isEnabled()) return;
+        if (object->isTextureDirty()) {
+            object->loadTextureForFrame(frameIndex);
+        }
         GraphicsShader* shader = renderer->getShaderManager()->getGraphicsShader("ui");
         
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipeline);

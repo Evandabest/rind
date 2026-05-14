@@ -5,15 +5,14 @@
 #include <glm/gtc/quaternion.hpp>
 #include <stdexcept>
 
-#define PI 3.14159265358979323846f
-
 rind::Enemy::Enemy(
     engine::EntityManager* entityManager,
     rind::Player* player,
+    rind::GameInstance* gameInstance,
     const std::string& name,
     const glm::mat4& transform,
     uint32_t& enemyCount
-) : rind::CharacterEntity(entityManager, name, "", transform, {}, engine::Entity::EntityType::Enemy), targetPlayer(player), enemyCount(enemyCount) {
+) : rind::CharacterEntity(entityManager, name, "", transform, {}, engine::Entity::EntityType::Enemy), targetPlayer(player), enemyCount(enemyCount), gameInstance(gameInstance) {
         if (player == nullptr) {
             throw std::runtime_error("Enemy spawned without player reference");
         }
@@ -26,7 +25,7 @@ void rind::Enemy::shoot() {
     glm::vec3 rayDir = glm::normalize(glm::vec3(getHead()->getWorldTransform()[0]));
     glm::vec3 gunPos = gunEndPosition->getWorldPosition();
     particleManager->burstParticles(
-        glm::translate(glm::mat4(1.0f), gunPos),
+        gunPos,
         getTrailColor(),
         rayDir * 10.0f,
         20,
@@ -35,7 +34,7 @@ void rind::Enemy::shoot() {
         0.8f
     );
     particleManager->burstParticles(
-        glm::translate(glm::mat4(1.0f), gunPos),
+        gunPos,
         getTrailColor(),
         rayDir * 15.0f,
         60,
@@ -43,52 +42,51 @@ void rind::Enemy::shoot() {
         0.35f,
         0.3f
     );
-    std::vector<engine::Collider::Collision> hits = engine::Collider::raycast(
+    engine::Collider::Collision hit = engine::Collider::raycastFirst(
         getEntityManager(),
         gunPos,
         rayDir,
         1000.0f,
-        this->getCollider(),
-        true
+        this->getCollider()
     );
     glm::vec3 endPos = gunPos + rayDir * 1000.0f;
-    if (!hits.empty()) {
-        engine::Collider::Collision collision = hits[0];
+    if (hit.other) {
+        engine::Collider::Collision collision = hit;
         endPos = collision.worldHitPoint;
         glm::vec3 normal = glm::normalize(collision.mtv.normal);
         glm::vec3 reflectedDir = glm::reflect(rayDir, normal);
         particleManager->burstParticles(
-            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
+            collision.worldHitPoint,
             getTrailColor(),
             reflectedDir * 40.0f,
-            50,
+            12,
             4.0f,
             0.5f,
             0.9f
         );
         particleManager->burstParticles(
-            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
+            collision.worldHitPoint,
             getTrailColor(),
             reflectedDir * 25.0f,
-            100,
+            25,
             4.0f,
             0.4f,
             0.3f
         );
         particleManager->burstParticles(
-            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
+            collision.worldHitPoint,
             getTrailColor(),
             reflectedDir * 10.0f,
-            50,
+            12,
             2.0f,
             0.3f,
             0.7f
         );
         particleManager->burstParticles(
-            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
+            collision.worldHitPoint,
             getTrailColor(),
             reflectedDir * 30.0f,
-            40,
+            10,
             3.0f,
             0.35f,
             1.1f
@@ -172,15 +170,16 @@ void rind::Enemy::update(float deltaTime) {
                 glm::translate(glm::mat4(1.0f), getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f)),
                 glm::vec3(20.0f, 20.0f, 20.0f)
             ),
-            glm::vec4(0.1f, 0.1f, 0.1f, 0.6f),
+            glm::vec4(0.1f, 0.1f, 0.1f, 0.4f),
             2.0f
         );
-        audioManager->playSound3D("enemy_smoke", getWorldPosition(), 0.8f, 0.5F);
+        audioManager->playSound3D("enemy_smoke", getWorldPosition(), 0.8f, 0.5f);
     }
     float playTalk = dist(rng) + 1.0f;
     if (playTalk > 1.999f) {
-        audioManager->playSound3D("enemy_talk", getWorldPosition(), 0.5f, 0.5F);
+        audioManager->playSound3D("enemy_talk", getWorldPosition(), 0.5f, 0.5f);
     }
+    shootingCooldown = 1.5f / (static_cast<float>(gameInstance->getDifficultyLevel()) + 1.0f);
 }
 
 void rind::Enemy::rotateToPlayer() {
@@ -204,57 +203,54 @@ bool rind::Enemy::checkVisibilityOfPlayer() {
     if (!targetPlayer) {
         return false;
     }
-    engine::AABB playerAABB = targetPlayer->getCollider()->getWorldAABB();
-    std::array<glm::vec3, 8> corners = engine::Collider::getCornersFromAABB(visionBox);
-    for (auto& corner : corners) {
-        corner = glm::vec3(getWorldTransform() * glm::vec4(corner, 1.0f));
+    const glm::mat4 invEnemyWorld = glm::inverse(getWorldTransform());
+    engine::AABB playerWorldAABB = targetPlayer->getCollider()->getWorldAABB();
+    std::array<glm::vec3, 8> playerCorners = engine::Collider::getCornersFromAABB(playerWorldAABB);
+    for (auto& corner : playerCorners) {
+        corner = glm::vec3(invEnemyWorld * glm::vec4(corner, 1.0f));
     }
-    engine::AABB enemyVisionBox = engine::Collider::aabbFromCorners(corners);
-    return engine::Collider::aabbIntersects(enemyVisionBox, playerAABB);
+    engine::AABB playerLocalAABB = engine::Collider::aabbFromCorners(playerCorners);
+    return engine::Collider::aabbIntersects(visionBox, playerLocalAABB);
 }
 
 void rind::Enemy::damage(float amount) {
+    if (getHealth() <= 0.0f) return; // already dead, pending deletion
     setHealth(getHealth() - amount);
     if (getHealth() <= 0.0f) {
+        float statusChance = (dist(rng) * 0.5f) + 0.5f; // 0 to 1
+        if (statusChance <= 0.1f // 10% chance
+         && !targetPlayer->statusEnabled()) { // status effect not already enabled
+            float randomValue = (dist(rng) * 0.5f) + 0.5f; // 0 to 1
+            targetPlayer->setStatusEffect(getRandomStatusEffect(randomValue));
+        }
         targetPlayer->addScore(getScoreWorth());
         volumetricManager->createVolumetric(
             glm::scale(
                 getWorldTransform(),
-                glm::vec3(2.0f, 2.0f, 2.0f)
+                glm::vec3(5.0f)
             ),
             glm::scale(
                 getWorldTransform(),
-                glm::vec3(10.0f, 10.0f, 10.0f)
-            ),
-            glm::vec4(glm::min(getTrailColor() + glm::vec3(0.2f), glm::vec3(1.0f)), 20.0f),
-            0.5f
-        );
-        volumetricManager->createVolumetric(
-            glm::scale(
-                getWorldTransform(),
-                glm::vec3(5.0f, 5.0f, 5.0f)
-            ),
-            glm::scale(
-                getWorldTransform(),
-                glm::vec3(20.0f, 20.0f, 20.0f)
+                glm::vec3(20.0f)
             ),
             glm::vec4(glm::min(getTrailColor() + glm::vec3(0.2f), glm::vec3(1.0f)), 1.0f),
-            2.0f
+            3.5f,
+            6.0f
         );
         volumetricManager->createVolumetric(
             glm::scale(
                 getWorldTransform(),
-                glm::vec3(6.0f, 6.0f, 6.0f)
+                glm::vec3(6.0f)
             ),
             glm::scale(
                 getWorldTransform(),
-                glm::vec3(25.0f, 25.0f, 25.0f)
+                glm::vec3(25.0f)
             ),
             glm::vec4(0.1f, 0.1f, 0.1f, 0.4f),
-            4.0f
+            5.0f
         );
         particleManager->burstParticles(
-            glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+            getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
             getTrailColor(),
             glm::vec3(0.0f, 1.0f, 0.0f) * 5.0f,
             250,
@@ -263,7 +259,7 @@ void rind::Enemy::damage(float amount) {
             0.5f
         );
         particleManager->burstParticles(
-            glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+            getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
             getTrailColor(),
             glm::vec3(0.0f, 1.0f, 0.0f) * 10.0f,
             160,
@@ -272,7 +268,7 @@ void rind::Enemy::damage(float amount) {
             1.0f
         );
         particleManager->burstParticles(
-            glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+            getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
             getTrailColor(),
             glm::vec3(0.0f, 1.0f, 0.0f) * 11.0f,
             50,
@@ -281,7 +277,7 @@ void rind::Enemy::damage(float amount) {
             1.5f
         );
         particleManager->burstParticles(
-            glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+            getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
             getTrailColor(),
             glm::vec3(0.0f, 1.0f, 0.0f) * 12.0f,
             300,
@@ -292,10 +288,11 @@ void rind::Enemy::damage(float amount) {
         rind::TempTrigger* triggerCollider = new rind::TempTrigger(
             getEntityManager(),
             "enemyExplosionTrigger" + getName(),
+            getTrailColor(),
             glm::scale(glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)), glm::vec3(9.0f, 9.0f, 9.0f)),
             4.0f
         );
-        audioManager->playSound3D("enemy_death", getWorldPosition(), 1.2f, 0.15F);
+        audioManager->playSound3D("enemy_death", getWorldPosition(), 1.2f, 0.15f);
         getEntityManager()->markForDeletion(this);
     }
 }

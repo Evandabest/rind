@@ -1,0 +1,62 @@
+#include <rind/FlyingBoss.h>
+#include <engine/ParticleManager.h>
+#include <engine/VolumetricManager.h>
+#include <glm/gtc/quaternion.hpp>
+#include <rind/SlowBullet.h>
+#include <cmath>
+#include <numbers>
+
+rind::FlyingBoss::FlyingBoss(
+    engine::EntityManager* entityManager,
+    rind::Player* player,
+    rind::GameInstance* gameInstance,
+    const std::string& name,
+    const glm::mat4& transform,
+    uint32_t& enemyCount
+) : rind::FlyingEnemy(entityManager, player, gameInstance, name, transform, enemyCount) {
+        setMaxHealth(300.0f);
+        setHealth(300.0f);
+        setTransform(
+            glm::scale(transform, glm::vec3(1.25f))
+        );
+        std::vector<std::string> bossMaterial = {
+            "materials_miniboss_albedo",
+            "materials_miniboss_metallic",
+            "materials_miniboss_roughness",
+            "materials_miniboss_normal"
+        };
+        enemyModel->setTextures(bossMaterial);
+    }
+
+void rind::FlyingBoss::update(float deltaTime) {
+    FlyingEnemy::update(deltaTime);
+    if (glm::dot(getPressed(), getPressed()) > 0.0f) {
+        float dashChance = (dist(rng) + 1.0f) * 0.5f; // 0.0 to 1.0
+        // 5% chance each frame to dash if moving, with a cooldown
+        if (dashChance >= 0.95f && std::chrono::steady_clock::now() - lastDashTime > std::chrono::milliseconds(dashCooldown)) {
+            glm::vec3 dashDirection = glm::normalize(getPressed());
+            dash(dashDirection, 100.0f);
+            particleManager->burstParticles(
+                getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
+                getTrailColor(),
+                -glm::normalize(getVelocity()) * 15.0f,
+                50,
+                2.0f,
+                2.0f,
+                1.2f
+            );
+            particleManager->burstParticles(
+                getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
+                getTrailColor(),
+                -glm::normalize(getVelocity()) * 10.0f,
+                50,
+                2.0f,
+                2.0f,
+                0.5f
+            );
+            audioManager->playSound3D("player_dash", getWorldPosition(), 0.5f, 0.15f);
+            lastDashTime = std::chrono::steady_clock::now();
+        }
+    }
+}
+

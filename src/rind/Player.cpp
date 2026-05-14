@@ -10,6 +10,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/matrix_interpolation.hpp>
 
 rind::Player::Player(
     engine::EntityManager* entityManager,
@@ -60,10 +61,8 @@ rind::Player::Player(
             "lasergun",
             "gbuffer",
             glm::scale(
-                glm::rotate(
-                    glm::translate(glm::mat4(1.0f), gunModelTranslation),
-                    glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)
-                ),
+                glm::translate(glm::mat4(1.0f), gunModelTranslation) *
+                glm::mat4_cast(gunModelInitialQuat),
                 glm::vec3(gunModelScale)
             ),
             gunMaterial,
@@ -127,9 +126,24 @@ rind::Player::Player(
             true,
             engine::Entity::EntityType::Model
         );
+        playerShadow->setVisible(false);
         playerShadow->setModel(entityManager->getRenderer()->getModelManager()->getModel("robot"));
         playerModel->addChild(playerShadow);
         playerShadow->playAnimation("Run", true, 1.0f);
+        playerArm = new engine::Entity(
+            entityManager,
+            "playerArm",
+            "gbuffer",
+            glm::mat4(1.0f),
+            gunMaterial,
+            true,
+            engine::Entity::EntityType::Model
+        );
+        playerArm->setCastShadow(false);
+        playerArm->setModel(entityManager->getRenderer()->getModelManager()->getModel("robot-arm"));
+        playerModel->addChild(playerArm);
+        playerArm->playAnimation("Run", true, 1.0f);
+        playerArm->setVisible(false);
         inputManager->registerCallback("playerInput", [this](const std::vector<engine::InputEvent>& events) {
             this->registerInput(events);
         });
@@ -176,12 +190,27 @@ rind::Player::Player(
             glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
             "ui_heal_overlay"
         );
+        statusEffectOverlayObject = new engine::UIObject(
+            entityManager->getRenderer()->getUIManager(),
+            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, heightScale, 1.0f)), glm::vec3(0.0f, 0.0f, 2.0f)),
+            "statusEffectOverlay",
+            glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+            "ui_heal_effectoverlay"
+        );
         engine::UIObject* crosshair = new engine::UIObject(
             entityManager->getRenderer()->getUIManager(),
             glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.2f, 0.2f, 1.0f)), glm::vec3(0.0f, 0.0f, 1.0f)),
             "crosshair",
-            glm::vec4(1.0f, 1.0f, 1.0f, 0.8f),
-            "ui_crosshair",
+            glm::vec4(1.0f, 1.0f, 1.0f, 0.9f),
+            "ui_cursor_crosshair",
+            engine::Corner::Center
+        );
+        hitmarkerObject = new engine::UIObject(
+            entityManager->getRenderer()->getUIManager(),
+            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.2f, 0.2f, 1.0f)), glm::vec3(0.0f, 0.0f, 1.0f)),
+            "hitmarker",
+            glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+            "ui_cursor_hitmarker",
             engine::Corner::Center
         );
         grenadeEmptyIconObject = new engine::UIObject(
@@ -190,6 +219,14 @@ rind::Player::Player(
             "grenadeEmptyIcon",
             glm::vec4(1.0f),
             "ui_grenade_empty",
+            engine::Corner::BottomLeft
+        );
+        grenadeKeybindHintObject = new engine::UIObject(
+            entityManager->getRenderer()->getUIManager(),
+            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.6f, -0.6f, 1.0f)), glm::vec3(80.0f, -120.0f, 0.5f)),
+            "grenadeKeybindHint",
+            glm::vec4(1.0f),
+            "inputs_keyboard_common_q",
             engine::Corner::BottomLeft
         );
         grenadeFullIconObject = new engine::UIObject(
@@ -204,10 +241,44 @@ rind::Player::Player(
         entityManager->getRenderer()->getInputManager()->registerRecreateSwapChainCallback("playerHealthbarResize", [this]() {
             this->resizeHealthbar();
         });
+        keybindHintObject = new engine::UIObject(
+            entityManager->getRenderer()->getUIManager(),
+            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.75f, -0.75f, 1.0f)), glm::vec3(-80.0f, 80.0f, 1.0f)),
+            "keybindHint",
+            glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+            "inputs_keyboard_mouse_right",
+            engine::Corner::TopRight
+        );
+        keybindHintTextObject = new engine::TextObject(
+            entityManager->getRenderer()->getUIManager(),
+            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.5f, 0.5f, 1.0f)), glm::vec3(-220.0f, -45.0f, 0.0f)),
+            "keybindHintText",
+            glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+            "",
+            "Lato",
+            engine::Corner::TopRight
+        );
+        statusTextObject = new engine::TextObject(
+            entityManager->getRenderer()->getUIManager(),
+            glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.5f, 0.5f, 1.0f)), glm::vec3(0.0f, -150.0f, 0.0f)),
+            "statusText",
+            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+            "",
+            "RubikGlitch",
+            engine::Corner::Top
+        );
         scoreCounter = new ScoreCounter(entityManager, entityManager->getRenderer()->getUIManager());
         particleManager = entityManager->getRenderer()->getParticleManager();
         audioManager = entityManager->getRenderer()->getAudioManager();
         volumetricManager = entityManager->getRenderer()->getVolumetricManager();
+        float messageChoice = dist(rng) * 0.5f + 0.5f;
+        if (messageChoice < 0.33f) {
+            showKeybindHint(HintActions::Dash, "To dash, press");
+        } else if (messageChoice < 0.66f) {
+            showKeybindHint(HintActions::Jump, "To double jump, double tap");
+        } else {
+            showKeybindHint(HintActions::Punch, "To punch, press");
+        }
     }
 
 rind::Player::~Player() {
@@ -240,6 +311,9 @@ void rind::Player::resizeHealthbar() {
     healEffectObject->setTransform(
         glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, heightScale, 1.0f)), glm::vec3(0.0f, 0.0f, 2.0f))
     );
+    statusEffectOverlayObject->setTransform(
+        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(widthScale, heightScale, 1.0f)), glm::vec3(0.0f, 0.0f, 2.0f))
+    );
 }
 
 void rind::Player::addScore(uint32_t score) {
@@ -252,25 +326,34 @@ void rind::Player::update(float deltaTime) {
     float rotateSpeed = std::abs(getRotateVelocity().y);
     float speed = horizontalSpeed + std::abs(rotateSpeed);
     glm::vec3 rotateVelocity = getRotateVelocity();
-    if (speed > 0.1f) {
+    if (speed > 0.1f && punchTimer <= 0.2f) {
         if (playerModel->getAnimationState().currentAnimation != "Run") {
             playerModel->playAnimation("Run", true, speed / 5.0f);
-            playerShadow->playAnimation("Run", true, speed / 5.0f);
         } else {
             playerModel->getAnimationState().playbackSpeed = speed / 5.0f;
+        }
+        if (playerShadow->getAnimationState().currentAnimation != "Run") {
+            playerShadow->playAnimation("Run", true, speed / 5.0f);
+        } else {
             playerShadow->getAnimationState().playbackSpeed = speed / 5.0f;
         }
-    } else {
-        if (playerModel->getAnimationState().currentAnimation != "Idle") {
-            playerModel->playAnimation("Idle", true, 1.0f);
-            playerShadow->playAnimation("Idle", true, 1.0f);
+        if (playerArm->getAnimationState().currentAnimation != "Run") {
+            playerArm->playAnimation("Run", true, speed / 5.0f);
+        } else {
+            playerArm->getAnimationState().playbackSpeed = speed / 5.0f;
         }
+    } else if (punchTimer <= 0.2f) {
+        playerModel->playAnimation("Idle", true, 1.0f);
+        playerShadow->playAnimation("Idle", true, 1.0f);
+        playerArm->playAnimation("Idle", true, 1.0f);
     }
     if ((rightStickX != 0.0f || rightStickY != 0.0f) && inputManager->getCursorLocked()) {
         float sensitivity = getEntityManager()->getRenderer()->getSettingsManager()->getSettings()->sensitivity;
         rotate(glm::vec3(0.0f, -rightStickX * sensitivity * 10.0f, -rightStickY * sensitivity * 10.0f));
     }
     rind::CharacterEntity::update(deltaTime);
+
+    // gun momentum effect
     if (currentGunRotOffset != glm::vec3(0.0f)) {
         currentGunRotOffset -= currentGunRotOffset * deltaTime * 8.0f;
     }
@@ -286,23 +369,78 @@ void rind::Player::update(float deltaTime) {
         currentGunLocOffset -= localVelocity * deltaTime * 0.05f;
     }
     currentGunLocOffset = glm::clamp(currentGunLocOffset, glm::vec3(-0.25f, -0.25f, -0.25f), glm::vec3(0.25f, 0.25f, 0.25f));
-    glm::mat4 offsetMat = glm::mat4(1.0f) *
-        glm::rotate(glm::mat4(1.0f), currentGunRotOffset.y, glm::vec3(0.0f, 1.0f, 0.0f)) *
-        glm::rotate(glm::mat4(1.0f), currentGunRotOffset.x, glm::vec3(1.0f, 0.0f, 0.0f)) *
-        glm::rotate(glm::mat4(1.0f), currentGunRotOffset.z, glm::vec3(0.0f, 0.0f, 1.0f));
-    offsetMat = glm::translate(offsetMat, currentGunLocOffset);
-    gunModel->setTransform(
-        glm::scale(
-            glm::rotate(
-                glm::translate(offsetMat, gunModelTranslation),
-                glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f)
+    glm::mat4 offsetMat = 
+        glm::translate(
+            glm::mat4(1.0f) *
+            glm::mat4_cast(
+                glm::angleAxis(currentGunRotOffset.y, glm::vec3(0.0f, 1.0f, 0.0f)) *
+                glm::angleAxis(currentGunRotOffset.x, glm::vec3(1.0f, 0.0f, 0.0f)) *
+                glm::angleAxis(currentGunRotOffset.z, glm::vec3(0.0f, 0.0f, 1.0f))
             ),
-            glm::vec3(gunModelScale)
-        )
-    );
+            currentGunLocOffset
+        );
+
+    // gun overheat check
+    if (coolingTime > 0.0f) {
+        coolingTime -= deltaTime;
+        if (coolingTime <= 0.0f) {
+            coolingTime = 0.0f;
+        }
+        // -(sin(pi * x / maxCoolingTime + pi/2))^8 + 1.0f for fast move, pause, fast move
+        float rotateAmount = -std::pow(sinf((std::numbers::pi_v<float> * coolingTime / maxCoolingTime) + (std::numbers::pi_v<float> / 2.0f)), 8.0f) + 1.0f;
+        glm::quat interpRot = glm::slerp(gunModelInitialQuat, gunModelOverheatedRot, rotateAmount);
+        gunModel->setTransform(
+            glm::scale(
+                glm::translate(offsetMat, gunModelTranslation) *
+                glm::mat4_cast(interpRot),
+                glm::vec3(gunModelScale)
+            )
+        );
+    } else {
+        gunModel->setTransform(
+            glm::scale(
+                glm::translate(offsetMat, gunModelTranslation) *
+                glm::mat4_cast(gunModelInitialQuat),
+                glm::vec3(gunModelScale)
+            )
+        );
+
+        // gun overheat data cleanup
+        bool resetShotTimes = false;
+        while (shotTimes[shotTimesFront] < std::chrono::steady_clock::now() - std::chrono::milliseconds(3000)) {
+            shotTimesFront = (shotTimesFront + 1) % maxShotTimes;
+            if (shotTimesFront == shotTimesEnd) {
+                resetShotTimes = true;
+                break;
+            }
+        }
+        if (resetShotTimes) {
+            shotTimesFront = 0;
+            shotTimesEnd = 0;
+        }
+    }
+    // gun overheat smoke effect
+    float smokeThreshold;
+    if (coolingTime > 1e-6f) {
+        smokeThreshold = (45.0f / maxCoolingTime) * coolingTime * deltaTime; // 0.0f to 45.0f * deltaTime
+    } else {
+        smokeThreshold = 25.0f * deltaTime * static_cast<float>((shotTimesEnd + maxShotTimes - shotTimesFront) % maxShotTimes) / static_cast<float>(maxShotTimes);
+        // 0.0f to 25.0f * deltaTime * (1.0f - (1.0f/maxShotTimes))
+    }
+    float smokeChance = (dist(rng) * 0.5f) + 0.5f; // 0 to 1
+    bool spawnSmoke = smokeChance < smokeThreshold;
+
+    // grenade cooldown
     float timeSinceLastGrenade = std::chrono::duration<float>(std::chrono::steady_clock::now() - lastGrenadeTime).count();
     float cooldownRatio = std::min(timeSinceLastGrenade / grenadeCooldown, 1.0f);
     grenadeFullIconObject->setUVClip(glm::vec4(0.0f, 0.0f, cooldownRatio, 1.0f));
+    if (cooldownRatio >= 0.99f) {
+        grenadeKeybindHintObject->setTint(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
+    } else {
+        grenadeKeybindHintObject->setTint(glm::vec4(0.25f, 0.25f, 0.25f, 0.75f));
+    }
+
+    // healthbar update
     if (healthbarObject->getUVClip().z != getHealth() / getMaxHealth()) {
         float dir = getHealth() - getMaxHealth() * healthbarObject->getUVClip().z;
         float changeAmount = deltaTime * 30.0f;
@@ -313,13 +451,29 @@ void rind::Player::update(float deltaTime) {
             healthbarObject->setUVClip(glm::vec4(0.0f, 0.0f, healthbarObject->getUVClip().z + changeAmount / getMaxHealth(), 1.0f));
         }
     }
+
+    // keybind hint
+    if (keybindHintDuration > 0.0f) {
+        keybindHintDuration -= deltaTime;
+        if (keybindHintDuration < 0.0f) {
+            keybindHintDuration = 0.0f;
+        }
+        checkKeybindHint();
+        float alpha = -(0.01f * std::pow(keybindHintDuration, 5) - (0.64f * keybindHintDuration));
+        keybindHintObject->setTint(glm::vec4(1.0f, 1.0f, 1.0f, alpha));
+        keybindHintTextObject->setTint(glm::vec4(1.0f, 1.0f, 1.0f, alpha));
+    }
+
+    // damage effect
     if (cameraShakeIntensity > 0.0f) {
+        cameraShakeIntensity -= deltaTime;
+        if (cameraShakeIntensity < 0.0f) {
+            cameraShakeIntensity = 0.0f;
+        }
         glm::vec3 randomCameraLoc = glm::vec3(dist(rng), dist(rng), dist(rng)) * cameraShakeIntensity * 0.05f;
         camHolder->setTransform(glm::translate(glm::mat4(1.0f), randomCameraLoc));
         float overlayAlpha = std::clamp(cameraShakeIntensity * 2.0f, std::min(1.0f - (getHealth() / getMaxHealth()), 0.8f), 0.8f);
         damageEffectObject->setTint(glm::vec4(1.0f, 1.0f, 1.0f, overlayAlpha));
-        damageEffectObject->loadTexture();
-        cameraShakeIntensity -= deltaTime;
     }
     if (heartbeatOffset > 0.0f) {
         lastHeartbeat += deltaTime;
@@ -328,14 +482,37 @@ void rind::Player::update(float deltaTime) {
             audioManager->playSound("player_heartbeat", 0.3f, 0.1f);
         }
     }
+
+    // status effect
+    if (hasStatus) {
+        statusResetTime -= deltaTime;
+        if (statusResetTime < 0.0f) {
+            setStatusEffect(mainStatusEffect, true);
+            statusResetTime = 0.0f;
+            hasStatus = false;
+            statusTextObject->setText("");
+            statusEffectOverlayObject->setTint(glm::vec4(1.0f, 1.0f, 1.0f, 0.0f));
+            currentStatusEffect = mainStatusEffect;
+        } else {
+            float& x = statusResetTime;
+            float& a = currentStatusEffect.resetTime;
+            float alpha = 0.3f * ((2.0f * x / a) * sinf(12.0f / (1.8f / a * x + 0.2f)) + sqrtf(6.0f * x / a) - powf(1.2f / a * x, 3.0f));
+            statusEffectOverlayObject->setTint(glm::vec4(currentStatusEffect.overlayColor, alpha));
+        }
+    }
+
+    // heal effect
     if (healUIShowTime > 0.0f) {
+        healUIShowTime -= deltaTime;
+        if (healUIShowTime < 0.0f) {
+            healUIShowTime = 0.0f;
+        }
         float alpha = -(0.5f * std::pow(healUIShowTime, 5) - (0.5f * healUIShowTime));
-        healEffectObject->setTint(glm::vec4(0.2f, 0.2f, 1.0f, alpha));
-        healEffectObject->loadTexture();
+        healEffectObject->setTint(glm::vec4(healEffectColor, alpha));
         float amount = -(10.0f * std::pow(healUIShowTime, 5) - (10.0f * healUIShowTime));
         particleManager->burstParticles(
-            getWorldTransform(),
-            glm::vec3(0.2f, 0.2f, 1.0f),
+            getWorldPosition(),
+            healEffectColor,
             glm::vec3(0.0f, 1.0f, 0.0f) * 2.0f,
             amount,
             1.5f,
@@ -343,31 +520,104 @@ void rind::Player::update(float deltaTime) {
             0.2f
         );
         particleManager->burstParticles(
-            getWorldTransform(),
-            glm::vec3(0.2f, 0.2f, 1.0f),
+            getWorldPosition(),
+            healEffectColor,
             glm::vec3(0.0f, 1.0f, 0.0f) * 2.0f,
             amount,
             1.0f,
             2.0f,
             0.4f
         );
-        healUIShowTime -= deltaTime;
+    } else {
+        healEffectObject->setTint(glm::vec4(1.0f, 1.0f, 1.0f, 0.0f));
+    }
+
+    // hitmarker effect
+    if (showHitmarkerTime > 0.0f) {
+        showHitmarkerTime -= deltaTime;
+        if (showHitmarkerTime < 0.0f) {
+            showHitmarkerTime = 0.0f;
+        }
+        float alpha = -(std::pow(2.0f * showHitmarkerTime, 5) - (3.25f * showHitmarkerTime));
+        hitmarkerObject->setTint(glm::vec4(hitmarkerColor, alpha));
+    } else {
+        hitmarkerObject->setTint(glm::vec4(1.0f, 1.0f, 1.0f, 0.0f));
+    }
+
+    // heal zone check
+    static thread_local std::vector<engine::Collider*> candidates;
+    candidates.clear();
+    getEntityManager()->getSpatialGrid().query(getCollider()->getWorldAABB(), candidates);
+    bool foundHealZone = false;
+    for (engine::Collider* collider : candidates) {
+        if (collider->getType() == engine::Entity::EntityType::Trigger) {
+            rind::TempTrigger* trigger = dynamic_cast<rind::TempTrigger*>(collider);
+            if (trigger) {
+                if (engine::Collider::aabbIntersects(getCollider()->getWorldAABB(), trigger->getWorldAABB())) {
+                    inHealZone = true;
+                    healEffectColor = trigger->getColor();
+                    foundHealZone = true;
+                    if (keybindHintDuration <= 0.0f) {
+                        showKeybindHint(HintActions::Heal, "To heal, press");
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    if (!foundHealZone) {
+        inHealZone = false;
+    }
+
+    // punch timer
+    if (punchTimer > 0.0f) {
+        punchTimer -= deltaTime;
+        if (punchTimer <= 0.0f) {
+            punchTimer = 0.0f;
+            playerArm->setVisible(false);
+        }
+    }
+
+    // gun trail effect and overheat smoke
+    glm::vec3 velocityOffset = getVelocity() * deltaTime;
+    glm::vec3 gunEndWorldPos = glm::vec3(gunEndPosition->getWorldTransform()[3]);
+    glm::vec3 playerWorldPos = getWorldPosition();
+    glm::vec3 gunOffsetFromPlayer = gunEndWorldPos - playerWorldPos;
+    glm::quat yawDelta = glm::angleAxis(rotateVelocity.y * deltaTime, glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::vec3 gunAfterYaw = playerWorldPos + velocityOffset + (yawDelta * gunOffsetFromPlayer);
+    glm::vec3 playerRight = glm::normalize(glm::vec3(getWorldTransform()[0]));
+    glm::quat pitchDelta = glm::angleAxis(rotateVelocity.x * deltaTime, yawDelta * playerRight);
+    glm::vec3 gunModelWorldPos = glm::vec3(gunModel->getWorldTransform()[3]);
+    glm::vec3 predictedGunModelPos = playerWorldPos + velocityOffset + (yawDelta * (gunModelWorldPos - playerWorldPos));
+    glm::vec3 gunOffsetFromGunModel = gunAfterYaw - predictedGunModelPos;
+    glm::vec3 currentGunEndPos = predictedGunModelPos + (pitchDelta * gunOffsetFromGunModel);
+    glm::vec3 rayDir = -glm::normalize(glm::vec3(camera->getWorldTransform()[2]));
+    if (spawnSmoke) {
+        glm::vec3 gunDir = glm::normalize(glm::vec3(gunEndPosition->getWorldTransform()[2]));
+        volumetricManager->createVolumetric(
+            glm::scale(
+                glm::translate(glm::mat4(1.0f), gunEndWorldPos - gunDir * smokeChance * 2.0f),
+                glm::vec3(0.1f, 0.1f, 0.1f)
+            ),
+            glm::scale(
+                glm::translate(glm::mat4(1.0f), gunEndWorldPos - gunDir * smokeChance * 2.0f),
+                glm::vec3(1.0f, 1.0f, 1.0f)
+            ),
+            glm::vec4(0.2f, 0.2f, 0.2f, 2.0f),
+            0.3f
+        );
+        particleManager->burstParticles(
+            gunEndWorldPos - gunDir * smokeChance * 2.0f,
+            trailColor,
+            gunDir * 0.5f + glm::vec3((dist(rng) - 0.5f) * 0.5f, (dist(rng) - 0.5f) * 0.5f, (dist(rng) - 0.5f) * 0.5f),
+            5,
+            0.3f,
+            0.5f,
+            0.3f
+        );
+        audioManager->playSound("smoke", 0.5f, 0.5f);
     }
     if (trailFramesRemaining > 0) {
-        float deltaTime = getEntityManager()->getRenderer()->getDeltaTime();
-        glm::vec3 velocityOffset = getVelocity() * deltaTime;
-        glm::vec3 gunEndWorldPos = glm::vec3(gunEndPosition->getWorldTransform()[3]);
-        glm::vec3 playerWorldPos = getWorldPosition();
-        glm::vec3 gunOffsetFromPlayer = gunEndWorldPos - playerWorldPos;
-        glm::quat yawDelta = glm::angleAxis(rotateVelocity.y * deltaTime, glm::vec3(0.0f, 1.0f, 0.0f));
-        glm::vec3 gunAfterYaw = playerWorldPos + velocityOffset + (yawDelta * gunOffsetFromPlayer);
-        glm::vec3 playerRight = glm::normalize(glm::vec3(getWorldTransform()[0]));
-        glm::quat pitchDelta = glm::angleAxis(rotateVelocity.x * deltaTime, yawDelta * playerRight);
-        glm::vec3 gunModelWorldPos = glm::vec3(gunModel->getWorldTransform()[3]);
-        glm::vec3 predictedGunModelPos = playerWorldPos + velocityOffset + (yawDelta * (gunModelWorldPos - playerWorldPos));
-        glm::vec3 gunOffsetFromGunModel = gunAfterYaw - predictedGunModelPos;
-        glm::vec3 currentGunEndPos = predictedGunModelPos + (pitchDelta * gunOffsetFromGunModel);
-        glm::vec3 rayDir = -glm::normalize(glm::vec3(camera->getWorldTransform()[2]));
         if (trailFramesRemaining == maxTrailFrames) {
             volumetricManager->createVolumetric(
                 glm::scale(
@@ -382,7 +632,7 @@ void rind::Player::update(float deltaTime) {
                     ),
                     glm::vec3(1.3f, 1.3f, 1.3f)
                 ),
-                glm::vec4(1.0f, 0.2f, 0.2f, 15.0f),
+                glm::vec4(1.0f, 0.2f, 0.2f, 10.0f),
                 0.1f
             );
             volumetricManager->createVolumetric(
@@ -398,8 +648,8 @@ void rind::Player::update(float deltaTime) {
                     ),
                     glm::vec3(5.0f, 5.0f, 5.0f)
                 ),
-                glm::vec4(0.1f, 0.1f, 0.1f, 0.6f),
-                4.0f
+                glm::vec4(0.1f, 0.1f, 0.1f, 0.1f),
+                3.0f
             );
         }
         particleManager->spawnTrail(
@@ -417,28 +667,28 @@ void rind::Player::showPauseMenu(bool uiOnly) {
     engine::UIManager* uiManager = getEntityManager()->getRenderer()->getUIManager();
     pauseUIObject = new engine::UIObject(
         uiManager,
-        glm::scale(glm::mat4(1.0f), glm::vec3(0.2f, 0.28f, 1.0f)),
+        glm::scale(glm::mat4(1.0f), glm::vec3(0.35f, 0.45f, 1.0f)),
         "pauseUI",
-        glm::vec4(0.4f, 0.4f, 0.4f, 0.9f),
+        glm::vec4(0.4f, 0.4f, 0.4f, 1.0f),
         "ui_window",
         engine::Corner::Center
     );
     pauseUIObject->addChild(new engine::TextObject(
         uiManager,
-        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.17f, 0.17f, 1.0f)), glm::vec3(0.0f, -120.0f, 0.0f)),
+        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.19f, 0.19f, 1.0f)), glm::vec3(0.0f, -200.0f, 0.0f)),
         "pauseTitle",
-        glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-        "Paused",
-        "Lato",
+        glm::vec4(0.9f, 0.05f, 0.05f, 1.0f),
+        "PAUSE",
+        "RubikGlitch",
         engine::Corner::Top
     ));
     pauseUIObject->addChild(new engine::ButtonObject(
         uiManager,
-        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.17f, 0.04f, 1.0f)), glm::vec3(0.0f, -1500.0f, 0.0f)),
+        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.2f, 0.05f, 1.0f)), glm::vec3(0.0f, -2700.0f, 0.0f)),
         "resumeButton",
         glm::vec4(0.2f, 0.2f, 0.2f, 1.0f),
-        glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-        "ui_window",
+        glm::vec4(0.5f, 0.5f, 0.5f, 1.0f),
+        "ui_empty",
         "RESUME",
         "Lato",
         [this]() {
@@ -449,11 +699,11 @@ void rind::Player::showPauseMenu(bool uiOnly) {
     ));
     pauseUIObject->addChild(new engine::ButtonObject(
         uiManager,
-        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.17f, 0.04f, 1.0f)), glm::vec3(0.0f, -2700.0f, 0.0f)),
+        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.2f, 0.05f, 1.0f)), glm::vec3(0.0f, -3600.0f, 0.0f)),
         "graphicsSettingsButton",
         glm::vec4(0.2f, 0.2f, 0.2f, 1.0f),
-        glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-        "ui_window",
+        glm::vec4(0.5f, 0.5f, 0.5f, 1.0f),
+        "ui_empty",
         "SETTINGS",
         "Lato",
         [this]() {
@@ -470,11 +720,11 @@ void rind::Player::showPauseMenu(bool uiOnly) {
     ));
     pauseUIObject->addChild(new engine::ButtonObject(
         uiManager,
-        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.17f, 0.04f, 1.0f)), glm::vec3(0.0f, -3900.0f, 0.0f)),
+        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.2f, 0.05f, 1.0f)), glm::vec3(0.0f, -4500.0f, 0.0f)),
         "quitButton",
         glm::vec4(0.2f, 0.2f, 0.2f, 1.0f),
-        glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-        "ui_window",
+        glm::vec4(0.5f, 0.5f, 0.5f, 1.0f),
+        "ui_empty",
         "MENU",
         "Lato",
         [this]() {
@@ -482,17 +732,17 @@ void rind::Player::showPauseMenu(bool uiOnly) {
             this->inputManager->unregisterCallback("playerHealthbarResize");
             this->inputManager->resetKeyStates();
             this->hidePauseMenu();
-            this->getEntityManager()->getRenderer()->getSceneManager()->setActiveScene(0);
+            this->getEntityManager()->getRenderer()->getSceneManager()->setActiveSceneDeferred(0);
         },
         engine::Corner::Top
     ));
     pauseUIObject->addChild(new engine::ButtonObject(
         uiManager,
-        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.17f, 0.04f, 1.0f)), glm::vec3(0.0f, -5100.0f, 0.0f)),
+        glm::translate(glm::scale(glm::mat4(1.0f), glm::vec3(0.2f, 0.05f, 1.0f)), glm::vec3(0.0f, -5400.0f, 0.0f)),
         "exitButton",
         glm::vec4(0.2f, 0.2f, 0.2f, 1.0f),
-        glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-        "ui_window",
+        glm::vec4(0.5f, 0.5f, 0.5f, 1.0f),
+        "ui_empty",
         "QUIT",
         "Lato",
         [this]() {
@@ -512,7 +762,7 @@ void rind::Player::showPauseMenu(bool uiOnly) {
 void rind::Player::hidePauseMenu(bool uiOnly) {
     if (pauseUIObject) {
         engine::UIManager* uiManager = getEntityManager()->getRenderer()->getUIManager();
-        uiManager->removeObject(pauseUIObject->getName());
+        uiManager->removeObjectDeferred(pauseUIObject->getName());
         pauseUIObject = nullptr;
     }
     engine::Renderer* renderer = getEntityManager()->getRenderer();
@@ -558,6 +808,12 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                     if ((std::chrono::steady_clock::now() - lastGrenadeTime) >= std::chrono::duration<float>(grenadeCooldown)) {
                         throwGrenade();
                         lastGrenadeTime = std::chrono::steady_clock::now();
+                    }
+                    break;
+                case GLFW_KEY_F:
+                    if ((std::chrono::steady_clock::now() - lastPunchTime) >= std::chrono::duration<float>(punchCooldown)) {
+                        punch();
+                        lastPunchTime = std::chrono::steady_clock::now();
                     }
                     break;
                 case GLFW_KEY_SPACE:
@@ -607,23 +863,12 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                     lastShotTime = std::chrono::steady_clock::now();
                 }
             } else if (event.mouseButtonEvent.button == GLFW_MOUSE_BUTTON_RIGHT
-             && (std::chrono::steady_clock::now() - lastShotTime) >= std::chrono::duration<float>(shootingCooldown))
-            {
-                static thread_local std::vector<engine::Collider*> candidates;
-                candidates.clear();
-                getEntityManager()->getSpatialGrid().query(getCollider()->getWorldAABB(), candidates);
-                for (engine::Collider* collider : candidates) {
-                    if (collider->getType() == engine::Entity::EntityType::Trigger) {
-                        rind::TempTrigger* trigger = dynamic_cast<rind::TempTrigger*>(collider);
-                        if (trigger) {
-                            if (engine::Collider::aabbIntersects(getCollider()->getWorldAABB(), trigger->getWorldAABB())) {
-                                damage(-10.0f); // heals from enemy explosions
-                                lastShotTime = std::chrono::steady_clock::now();
-                                break;
-                            }
-                        }
-                    }
-                }
+             && (std::chrono::steady_clock::now() - lastShotTime) >= std::chrono::duration<float>(shootingCooldown)
+             && inHealZone
+            ) {
+                damage(-10.0f); // heals from enemy explosions
+                lastShotTime = std::chrono::steady_clock::now();
+                break;
             }
         } else if (event.type == engine::InputEvent::Type::GamepadButtonPress) {
             if (renderer->isPaused() && event.gamepadButtonEvent.button != GLFW_GAMEPAD_BUTTON_START) {
@@ -646,28 +891,23 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                     }
                     break;
                 case GLFW_GAMEPAD_BUTTON_B:
-                    if ((std::chrono::steady_clock::now() - lastShotTime) >= std::chrono::duration<float>(shootingCooldown)) {
-                        static thread_local std::vector<engine::Collider*> candidates;
-                        candidates.clear();
-                        getEntityManager()->getSpatialGrid().query(getCollider()->getWorldAABB(), candidates);
-                        for (engine::Collider* collider : candidates) {
-                            if (collider->getType() == engine::Entity::EntityType::Trigger) {
-                                rind::TempTrigger* trigger = dynamic_cast<rind::TempTrigger*>(collider);
-                                if (trigger) {
-                                    if (engine::Collider::aabbIntersects(getCollider()->getWorldAABB(), trigger->getWorldAABB())) {
-                                        damage(-10.0f); // heals from enemy explosions
-                                        lastShotTime = std::chrono::steady_clock::now();
-                                        break;
-                                    }
-                                }
-                            }
-                        }
+                    if ((std::chrono::steady_clock::now() - lastShotTime) >= std::chrono::duration<float>(shootingCooldown)
+                     && inHealZone
+                    ) {
+                        damage(-10.0f); // heals from enemy explosions
+                        lastShotTime = std::chrono::steady_clock::now();
                     }
                     break;
                 case GLFW_GAMEPAD_BUTTON_LEFT_BUMPER:
                     if ((std::chrono::steady_clock::now() - lastGrenadeTime) >= std::chrono::duration<float>(grenadeCooldown)) {
                         throwGrenade();
                         lastGrenadeTime = std::chrono::steady_clock::now();
+                    }
+                    break;
+                case GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER:
+                    if ((std::chrono::steady_clock::now() - lastPunchTime) >= std::chrono::duration<float>(punchCooldown)) {
+                        punch();
+                        lastPunchTime = std::chrono::steady_clock::now();
                     }
                     break;
                 default:
@@ -718,7 +958,8 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                     rightStickY = event.gamepadAxisEvent.value;
                     break;
                 case GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER:
-                    if (event.gamepadAxisEvent.value > 0.5f
+                    if (!renderer->isPaused()
+                     && event.gamepadAxisEvent.value > 0.5f
                      && (std::chrono::steady_clock::now() - lastShotTime) >= std::chrono::duration<float>(shootingCooldown))
                     {
                         shoot();
@@ -747,7 +988,7 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
         if (duration >= dashCooldown && canDash) {
             dash(currentPress, 100.0f);
             particleManager->burstParticles(
-                glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+                getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
                 trailColor,
                 -glm::normalize(getVelocity()) * 15.0f,
                 50,
@@ -756,7 +997,7 @@ void rind::Player::registerInput(const std::vector<engine::InputEvent>& events) 
                 1.2f
             );
             particleManager->burstParticles(
-                glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+                getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
                 trailColor,
                 -glm::normalize(getVelocity()) * 10.0f,
                 50,
@@ -786,8 +1027,11 @@ void rind::Player::damage(float amount) {
         else {
             audioManager->playSound("player_heal", 0.4f, 0.4f);
             healUIShowTime = 1.0f;
+            showHitmarker(glm::clamp(healEffectColor + glm::vec3(0.3f), glm::vec3(0.0f), glm::vec3(1.0f)));
             earlyReturn = true;
         }
+    } else if (protectionMultiplier > 1e-6f) {
+        amount /= protectionMultiplier;
     }
     setHealth(std::min(getHealth() - amount, getMaxHealth()));
     if (getHealth() <= 0.5f * getMaxHealth()) {
@@ -817,16 +1061,16 @@ void rind::Player::damage(float amount) {
         );
         engine::TextObject* diedText = new engine::TextObject(
             uiManager,
-            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -2.0f)),
+            glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 100.0f, -2.0f)),
             "deathWindowText",
             glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-            "You Died!",
-            "Lato"
+            "You Died",
+            "ColdNightForAlligators"
         );
         engine::SceneManager* sceneManager = getEntityManager()->getRenderer()->getSceneManager();
         engine::ButtonObject* quitButton = new engine::ButtonObject(
             uiManager,
-            glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -400.0f, -2.0f)), glm::vec3(0.15, 0.05, 1.0)),
+            glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -150.0f, -2.0f)), glm::vec3(0.15, 0.05, 1.0)),
             "deathMenuButton",
             glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
             glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
@@ -834,12 +1078,12 @@ void rind::Player::damage(float amount) {
             "MENU",
             "Lato",
             [sceneManager]() {
-                sceneManager->setActiveScene(0);
+                sceneManager->setActiveSceneDeferred(0);
             }
         );
         windowTint->addChild(quitButton);
         particleManager->burstParticles(
-            glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+            getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
             trailColor,
             glm::vec3(0.0f, 1.0f, 0.0f) * 2.0f,
             200,
@@ -848,7 +1092,7 @@ void rind::Player::damage(float amount) {
             0.3f
         );
         particleManager->burstParticles(
-            getWorldTransform(),
+            getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
             trailColor,
             glm::vec3(0.0f, 1.0f, 0.0f) * 2.0f,
             200,
@@ -857,7 +1101,7 @@ void rind::Player::damage(float amount) {
             0.6f
         );
         particleManager->burstParticles(
-            getWorldTransform(),
+            getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
             trailColor,
             glm::vec3(0.0f, 1.0f, 0.0f) * 2.0f,
             200,
@@ -876,10 +1120,21 @@ void rind::Player::damage(float amount) {
 }
 
 void rind::Player::shoot() {
+    if (coolingTime > 1e-6f) {
+        return;
+    }
+    shotTimes[shotTimesEnd] = std::chrono::steady_clock::now();
+    shotTimesEnd = (shotTimesEnd + 1) % maxShotTimes;
+    if (shotTimesEnd == shotTimesFront) { // gun overheated
+        coolingTime = maxCoolingTime;
+        shotTimesFront = 0;
+        shotTimesEnd = 0;
+        return;
+    }
     glm::vec3 rayDir = -glm::normalize(glm::vec3(camera->getWorldTransform()[2]));
     glm::vec3 gunPos = glm::vec3(gunEndPosition->getWorldTransform()[3]);
     particleManager->burstParticles(
-        glm::translate(glm::mat4(1.0f), gunPos),
+        gunPos,
         trailColor,
         rayDir * 10.0f,
         20,
@@ -888,7 +1143,7 @@ void rind::Player::shoot() {
         0.8f
     );
     particleManager->burstParticles(
-        glm::translate(glm::mat4(1.0f), gunPos),
+        gunPos,
         trailColor,
         rayDir * 15.0f,
         60,
@@ -896,60 +1151,69 @@ void rind::Player::shoot() {
         0.35f,
         0.3f
     );
-    std::vector<engine::Collider::Collision> hits = engine::Collider::raycast(
+    engine::Collider::Collision hit = engine::Collider::raycastFirst(
         getEntityManager(),
         camera->getWorldPosition(),
         rayDir,
         1000.0f,
-        this->getCollider(),
-        true
+        this->getCollider()
     );
     glm::vec3 endPos = gunPos + rayDir * 1000.0f;
-    if (!hits.empty()) {
-        engine::Collider::Collision collision = hits[0];
-        endPos = collision.worldHitPoint;
-        glm::vec3 normal = glm::normalize(collision.mtv.normal);
+    if (hit.other) {
+        endPos = hit.worldHitPoint;
+        glm::vec3 normal = glm::normalize(hit.mtv.normal);
         glm::vec3 reflectedDir = glm::reflect(rayDir, normal);
         particleManager->burstParticles(
-            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
+            hit.worldHitPoint,
             trailColor,
             reflectedDir * 40.0f,
-            50,
+            12,
             4.0f,
             0.5f,
             0.9f
         );
         particleManager->burstParticles(
-            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
+            hit.worldHitPoint,
             trailColor,
             reflectedDir * 25.0f,
-            100,
+            25,
             4.0f,
             0.4f,
             0.4f
         );
         particleManager->burstParticles(
-            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
+            hit.worldHitPoint,
             trailColor,
             reflectedDir * 10.0f,
-            50,
+            12,
             2.0f,
             0.3f,
             0.7f
         );
         particleManager->burstParticles(
-            glm::translate(glm::mat4(1.0f), collision.worldHitPoint),
+            hit.worldHitPoint,
             trailColor,
             reflectedDir * 30.0f,
-            40,
+            10,
             3.0f,
             0.35f,
             1.1f
         );
-        engine::Entity* other = collision.other->getParent();
+        engine::Entity* other = hit.other->getParent();
         if (other->getType() == engine::Entity::EntityType::Enemy) {
             rind::Enemy* character = static_cast<rind::Enemy*>(other);
-            character->damage(34.0f);
+            float damageAmount = 34.0f;
+            if (strengthMultiplier > 1e-6f) {
+                damageAmount *= strengthMultiplier;
+            }
+            if (character->getHealth() - damageAmount <= 0.0f) {
+                showHitmarker(glm::vec3(1.0f, 0.2f, 0.2f));
+                audioManager->playSound("hitmarker_death", 0.6f, 0.25f);
+            } else {
+                showHitmarker(glm::vec3(1.0f, 1.0f, 1.0f));
+                audioManager->playSound("hitmarker", 0.5f, 0.2f);
+            }
+            character->damage(damageAmount);
             if (character->getState() == EnemyState::Idle) {
                 character->rotateToPlayer();
                 if (!character->checkVisibilityOfPlayer()) {
@@ -958,9 +1222,9 @@ void rind::Player::shoot() {
                     audioManager->playSound3D("enemy_track", character->getWorldPosition(), 0.5f, 0.2f);
                 }
             }
-            audioManager->playSound3D("laser_enemy_impact", collision.worldHitPoint, 0.5f, 0.2f);
+            audioManager->playSound3D("laser_enemy_impact", hit.worldHitPoint, 0.5f, 0.2f);
         } else {
-            audioManager->playSound3D("laser_ground_impact", collision.worldHitPoint, 0.5f, 0.2f);
+            audioManager->playSound3D("laser_ground_impact", hit.worldHitPoint, 0.5f, 0.2f);
         }
     }
     audioManager->playSound3D("laser_shot", gunPos, 0.5f, 0.2f);
@@ -969,14 +1233,100 @@ void rind::Player::shoot() {
 }
 
 void rind::Player::throwGrenade() {
-    glm::vec3 forward = -glm::normalize(glm::vec3(camera->getWorldTransform()[2]));
+    glm::vec3 cameraForward = -glm::normalize(glm::vec3(camera->getWorldTransform()[2]));
+    glm::vec3 playerForward = -glm::normalize(glm::vec3(getWorldTransform()[2]));
+    playerForward.y = 0.0f;
+    if (glm::length2(playerForward) > 1e-6f) {
+        playerForward = glm::normalize(playerForward);
+    } else {
+        playerForward = glm::vec3(0.0f, 0.0f, -1.0f);
+    }
+    const float verticalAim = cameraForward.y;
     glm::vec3 gunPos = glm::vec3(gunEndPosition->getWorldTransform()[3]);
+    glm::vec3 playerVel = getVelocity();
+    float forwardSpeed = glm::dot(playerVel, playerForward);
+    glm::vec3 lateralVel = playerVel - playerForward * forwardSpeed;
+    glm::vec3 inheritedVel = playerForward * std::max(forwardSpeed, 0.0f) + lateralVel * 0.2f;
     Grenade* grenade = new Grenade(
         getEntityManager(),
-        glm::translate(glm::mat4(1.0f), gunPos + forward * 0.5f),
-        forward * 20.0f + glm::vec3(0.0f, 3.0f, 0.0f),
+        this,
+        glm::translate(glm::mat4(1.0f), gunPos + playerForward + glm::vec3(0.0f, verticalAim * 0.8f, 0.0f) + inheritedVel * 0.1f),
+        playerForward * 20.0f + glm::vec3(0.0f, 4.0f + verticalAim * 20.0f, 0.0f) + playerVel * 0.2f,
         trailColor,
         6.0f
     );
     audioManager->playSound3D("player_throw", gunPos, 0.5f, 0.2f);
+}
+
+void rind::Player::punch() {
+    playerShadow->playAnimation("Punch", true, 1.0f);
+    playerArm->setVisible(true);
+    playerArm->playAnimation("Punch", true, 1.0f);
+    punchTimer = 0.5f;
+    audioManager->playSound("punch", 0.5f, 0.2f);
+    const glm::mat4 cameraWorld = camera->getWorldTransform();
+    const glm::mat4 invCameraWorld = glm::inverse(cameraWorld);
+    glm::vec3 forward = -glm::normalize(glm::vec3(cameraWorld[2]));
+    std::array<glm::vec3, 8> corners = engine::Collider::getCornersFromAABB(punchHitbox);
+    for (auto& corner : corners) {
+        corner = glm::vec3(cameraWorld * glm::vec4(corner, 1.0f));
+    }
+    engine::AABB hitboxAABB = engine::Collider::aabbFromCorners(corners);
+    static thread_local std::vector<engine::Collider*> candidates;
+    candidates.clear();
+    getEntityManager()->getSpatialGrid().query(hitboxAABB, candidates);
+    for (auto& candidate : candidates) {
+        if (candidate == getCollider()) {
+            continue;
+        }
+        engine::Entity* other = candidate->getParent();
+        if (other && other->getType() == engine::Entity::EntityType::Enemy) {
+            engine::AABB candidateWorldAABB = candidate->getWorldAABB();
+            std::array<glm::vec3, 8> candidateCorners = engine::Collider::getCornersFromAABB(candidateWorldAABB);
+            for (auto& corner : candidateCorners) {
+                corner = glm::vec3(invCameraWorld * glm::vec4(corner, 1.0f));
+            }
+            engine::AABB candidateLocalAABB = engine::Collider::aabbFromCorners(candidateCorners);
+            if (!engine::Collider::aabbIntersects(punchHitbox, candidateLocalAABB)) {
+                continue;
+            }
+            rind::Enemy* character = static_cast<rind::Enemy*>(other);
+            float damageAmount = 50.0f;
+            if (strengthMultiplier > 1e-6f) {
+                damageAmount *= strengthMultiplier;
+            }
+            particleManager->burstParticles(
+                character->getWorldPosition() + glm::vec3(0.0f, 1.0f, 0.0f),
+                glm::vec3(1.0f, 0.5f, 0.15f),
+                -forward * 5.0f,
+                500,
+                2.0f,
+                1.0f,
+                0.5f
+            );
+            glm::vec3 toEnemy = character->getWorldPosition() - getWorldPosition();
+            float distance = glm::dot(toEnemy, toEnemy);
+            glm::quat inverseRotation = glm::inverse(glm::quat_cast(getWorldTransform()));
+            toEnemy = -(inverseRotation * toEnemy);
+            toEnemy.y = -toEnemy.y;
+            dash(toEnemy, distance);
+            if (character->getHealth() - damageAmount <= 0.0f) {
+                showHitmarker(glm::vec3(1.0f, 0.2f, 0.2f));
+                audioManager->playSound("hitmarker_death", 0.6f, 0.25f);
+            } else {
+                showHitmarker(glm::vec3(1.0f, 1.0f, 1.0f));
+                audioManager->playSound("hitmarker", 0.5f, 0.2f);
+                if (character->getState() == EnemyState::Idle) {
+                    character->rotateToPlayer();
+                    if (!character->checkVisibilityOfPlayer()) {
+                        character->setWanderTarget(getWorldPosition());
+                        character->wanderTo(getEntityManager()->getRenderer()->getDeltaTime());
+                        audioManager->playSound3D("enemy_track", character->getWorldPosition(), 0.5f, 0.2f);
+                    }
+                }
+            }
+            character->damage(damageAmount);
+            audioManager->playSound("punch_hit", 0.75f, 0.1f);
+        }
+    }
 }

@@ -3,6 +3,13 @@
 struct VSOutput {
     [[vk::location(0)]] float3 worldPos : TEXCOORD0;
     [[vk::location(1)]] nointerpolation uint instanceID : TEXCOORD1;
+    [[vk::location(2)]] nointerpolation uint maxSteps : TEXCOORD2;
+    [[vk::location(3)]] nointerpolation float baseDivs : TEXCOORD3;
+    [[vk::location(4)]] nointerpolation uint fbmOctaves : TEXCOORD4;
+    [[vk::location(5)]] nointerpolation uint doRefinement : TEXCOORD5;
+    [[vk::location(6)]] nointerpolation float ageFade : TEXCOORD6;
+    [[vk::location(7)]] nointerpolation float earlyExitAlpha : TEXCOORD7;
+    [[vk::location(8)]] nointerpolation uint doRejitter : TEXCOORD8;
 };
 
 struct VolumetricData {
@@ -11,7 +18,7 @@ struct VolumetricData {
     float4 color; // rgb = tint, w = density
     float age;
     float lifetime;
-    float2 pad;
+    uint pad[2];
 };
 
 [[vk::binding(0)]] StructuredBuffer<VolumetricData> volumes;
@@ -20,15 +27,13 @@ struct VolumetricData {
 
 struct PushConstants {
     float4x4 viewProj;
-    float3 camPos;
-    float pad;
+    float4 camPos; // w = quality, 0 = very low, 1 = low, 2 = medium, 3 = high
 };
 [[vk::push_constant]] PushConstants pc;
 
 static const float MAX_STEP_SCALE = 4.0;
 static const float THRESHOLD = 0.01;
-static const float LOD_NEAR = 2.0;
-static const float LOD_FAR = 10.0;
+static const float HDR_SCALE = 3.0;
 
 float hash3(float3 p) {
     p = frac(p * float3(443.897, 441.423, 437.195));
@@ -57,8 +62,8 @@ float vnoise(float3 p) {
 
 float fbm(float3 p, int octaves) {
     float v = 0.0;
-    float amp = 0.500;
-    float freq = 1.0;
+    float amp = 0.7;
+    float freq = 1.3;
     if (octaves >= 1) { v += vnoise(p * freq) * amp; amp *= 0.5; freq *= 2.0; }
     if (octaves >= 2) { v += vnoise(p * freq) * amp; amp *= 0.5; freq *= 2.0; }
     if (octaves >= 3) { v += vnoise(p * freq) * amp; amp *= 0.5; freq *= 2.0; }
@@ -72,14 +77,19 @@ float sampleDensity(float3 localPos, float age, float ageFade, int fbmOctaves) {
     if (r2 >= 0.46) return 0.0;
     float radial = exp(-r2 * 12.0);
     float3 noiseCoord = localPos * 6.0 + float3(0.0, age * 0.4, age * 0.15);
-    float n = fbm(noiseCoord, fbmOctaves);
+    float n = max(fbm(noiseCoord, fbmOctaves) - 0.15, 0.0);
     return radial * n * ageFade;
 }
 
-float4 main(VSOutput input, float4 fragCoord : SV_Position) : SV_Target {
+struct PSOutput {
+    float4 color : SV_Target;
+    float depth : SV_Depth;
+};
+
+PSOutput main(VSOutput input, float4 fragCoord : SV_Position) {
     VolumetricData vol = volumes[input.instanceID];
 
-    float3 rayOrigin = pc.camPos;
+    float3 rayOrigin = pc.camPos.xyz;
     float3 rayDir = normalize(input.worldPos - rayOrigin);
     float3 localOrigin = mul(float4(rayOrigin, 1.0), vol.invModel).xyz;
     float3 localDir = mul(float4(rayDir, 0.0), vol.invModel).xyz;
@@ -88,58 +98,78 @@ float4 main(VSOutput input, float4 fragCoord : SV_Position) : SV_Target {
     float3 tMax = (0.5 - localOrigin) / localDir;
     float3 t1 = min(tMin, tMax);
     float3 t2 = max(tMin, tMax);
-    float tNear = max(max(t1.x, t1.y), t1.z);
+    float tNearRaw = max(max(t1.x, t1.y), t1.z);
     float tFar = min(min(t2.x, t2.y), t2.z);
 
-    tNear = max(tNear, 0.0);
+    bool insideVolume = (tNearRaw < 0.0);
+    float tNear = max(tNearRaw, 0.0);
     if (tFar <= tNear) discard;
 
-    float3 entryWorld = mul(float4(localOrigin + tNear * localDir, 1.0), vol.model).xyz;
-    float4 entryClip = mul(float4(entryWorld, 1.0), pc.viewProj);
-    float entryClipD = entryClip.z / entryClip.w;
-    float2 entryUV = saturate(entryClip.xy / entryClip.w * 0.5 + 0.5);
-    float preSceneD = depthTexture.SampleLevel(depthSampler, entryUV, 0);
+    float entryClipD = 0.0;
+    if (!insideVolume) {
+        float3 entryWorld = mul(float4(localOrigin + tNear * localDir, 1.0), vol.model).xyz;
+        float4 entryClip = mul(float4(entryWorld, 1.0), pc.viewProj);
+        entryClipD = entryClip.z / entryClip.w;
+        float2 entryUV = saturate(entryClip.xy / entryClip.w * 0.5 + 0.5);
+        float preSceneD = depthTexture.SampleLevel(depthSampler, entryUV, 0);
 
-    if (preSceneD < 1.0) {
-        if (entryClipD >= preSceneD) discard; // fully occluded
+        if (preSceneD < 1.0) {
+            if (entryClipD >= preSceneD) discard; // fully occluded
 
-        float3 exitWorld = mul(float4(localOrigin + tFar * localDir, 1.0), vol.model).xyz;
-        float4 exitClip  = mul(float4(exitWorld, 1.0), pc.viewProj);
-        float  exitClipD = exitClip.z / exitClip.w;
+            float3 exitWorld = mul(float4(localOrigin + tFar * localDir, 1.0), vol.model).xyz;
+            float4 exitClip  = mul(float4(exitWorld, 1.0), pc.viewProj);
+            float  exitClipD = exitClip.z / exitClip.w;
 
-        if (exitClipD > preSceneD) { // partially occluded
-            float depthFrac = saturate((preSceneD - entryClipD) / (exitClipD - entryClipD));
-            tFar = lerp(tNear, tFar, depthFrac);
+            if (exitClipD > preSceneD) { // partially occluded
+                float depthFrac = saturate((preSceneD - entryClipD) / (exitClipD - entryClipD));
+                tFar = lerp(tNear, tFar, depthFrac);
+            }
+        }
+    } else {
+        float preSceneD = depthTexture.Load(int3(int2(fragCoord.xy), 0));
+        if (preSceneD < 1.0) {
+            float3 exitWorld = mul(float4(localOrigin + tFar * localDir, 1.0), vol.model).xyz;
+            float4 exitClip  = mul(float4(exitWorld, 1.0), pc.viewProj);
+            float  exitClipD = exitClip.z / exitClip.w;
+            if (exitClipD > preSceneD) {
+                float depthFrac = saturate(preSceneD / max(exitClipD, 1e-6));
+                tFar = lerp(tNear, tFar, depthFrac);
+            }
         }
     }
 
-    float3 volCenter = vol.model[3].xyz;
-    float camDist = length(volCenter - pc.camPos);
-    float lodT = saturate((camDist - LOD_NEAR) / (LOD_FAR - LOD_NEAR));
-    int maxSteps = (int) lerp(48.0, 8.0, lodT);
-    float baseDivs = lerp(24.0, 6.0, lodT);
-    int fbmOctaves = (int) lerp(5.0, 2.0, lodT);
-    bool doRefinement = lodT < 0.7;
+    float sphA = dot(localDir, localDir);
+    float sphB = dot(localOrigin, localDir);
+    float sphC = dot(localOrigin, localOrigin) - 0.46;
+    float sphDisc = sphB * sphB - sphA * sphC;
+    if (sphDisc < 0.0) discard;
+    float sqrtDisc = sqrt(sphDisc);
+    tNear = max(tNear, (-sphB - sqrtDisc) / sphA);
+    tFar = min(tFar, (-sphB + sqrtDisc) / sphA);
+    if (tFar <= tNear) discard;
+
+    int maxSteps = max(1, (int) input.maxSteps);
+    float baseDivs = max(input.baseDivs, 1.0);
+    int fbmOctaves = max(1, (int) input.fbmOctaves);
+    bool doRefinement = (input.doRefinement != 0u);
+    bool doRejitter = (input.doRejitter != 0u);
+    float earlyExitAlpha = input.earlyExitAlpha;
 
     float totalLen = tFar - tNear;
     float baseStep = totalLen / baseDivs;
     float maxStep = baseStep * MAX_STEP_SCALE;
     float extinction = vol.color.w;
     float3 tint = vol.color.rgb;
-
     float4 accum = float4(0.0, 0.0, 0.0, 0.0);
-    float jitter = hash3(float3(fragCoord.xy, vol.age)) * baseStep;
-    float t = tNear + jitter;
+    float t = tNear + hash3(fragCoord.xyz) * baseStep;
     float stepSize = baseStep;
-    float time = vol.age / max(vol.lifetime, 0.0001);
-    float x = saturate(1.0 - time);
-    float ageFade = x * x * (1.0 + 0.2 * x);
+    float ageFade = input.ageFade;
     int steps = 0;
 
     [loop]
     while (t < tFar && steps < maxSteps) {
         steps++;
-        if (accum.a >= 0.99) break;
+        if (accum.a >= earlyExitAlpha) break;
         float3 localMid = localOrigin + (t + stepSize * 0.5) * localDir;
         float density = sampleDensity(localMid, vol.age, ageFade, fbmOctaves);
         if (density <= THRESHOLD) {
@@ -155,12 +185,22 @@ float4 main(VSOutput input, float4 fragCoord : SV_Position) : SV_Target {
         }
 
         float transmittance = 1.0 - accum.a;
-        float contrib = (1.0 - exp(-density * extinction * stepSize)) * transmittance;
-        accum.rgb += contrib * tint;
-        accum.a += contrib;
-        t += stepSize;
+        float opticalDepth = density * extinction * stepSize;
+        float alphaContrib = (1.0 - exp(-opticalDepth)) * transmittance;
+        float emission = opticalDepth * HDR_SCALE;
+        accum.rgb += transmittance * emission * tint;
+        accum.a += alphaContrib;
+        if (doRejitter) {
+            t += stepSize + hash3(float3(fragCoord.xy, fragCoord.z + steps * baseStep)) * baseStep;
+        } else {
+            t += stepSize;
+        }
     }
 
-    if (accum.a < 0.001) discard;
-    return accum;
+    if (accum.a < 0.00001) discard;
+
+    PSOutput output;
+    output.color = accum;
+    output.depth = saturate(entryClipD);
+    return output;
 }

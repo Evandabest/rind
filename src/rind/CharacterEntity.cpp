@@ -18,9 +18,21 @@ void rind::CharacterEntity::update(float deltaTime) {
     if (rotateVelocity != glm::vec3(0.0f)) rotateVelocity = glm::vec3(0.0f);
 }
 
+static bool isAboveSurface(const engine::AABB& playerAABB, const engine::AABB& otherAABB) {
+    float playerCenterX = (playerAABB.min.x + playerAABB.max.x) * 0.5f;
+    float playerCenterZ = (playerAABB.min.z + playerAABB.max.z) * 0.5f;
+    float playerHalfX = (playerAABB.max.x - playerAABB.min.x) * 0.5f;
+    float playerHalfZ = (playerAABB.max.z - playerAABB.min.z) * 0.5f;
+    return playerCenterX > otherAABB.min.x - playerHalfX * 0.3f
+        && playerCenterX < otherAABB.max.x + playerHalfX * 0.3f
+        && playerCenterZ > otherAABB.min.z - playerHalfZ * 0.3f
+        && playerCenterZ < otherAABB.max.z + playerHalfZ * 0.3f;
+}
+
 void rind::CharacterEntity::updateMovement(float deltaTime) {
     const float MAX_DELTA_TIME = 0.05f; // clamp deltaTime to avoid large jumps
     deltaTime = glm::min(deltaTime, MAX_DELTA_TIME);
+    const bool wasGrounded = grounded;
     glm::vec3 desiredVel(0.0f);
     if (glm::dot(pressed, pressed) > 1e-6f || glm::dot(dashing, dashing) > 1e-6f) {
         const glm::mat4& t = getTransform();
@@ -63,7 +75,7 @@ void rind::CharacterEntity::updateMovement(float deltaTime) {
         }
     }
     if (!grounded || velocity.y > 0.0f) {
-        velocity.y -= gravity * deltaTime;
+        velocity.y -= gravityEnabled ? gravity * deltaTime : 0.0f;
     }
     const float totalMoveLength = glm::length(velocity * deltaTime);
     uint32_t steps;
@@ -81,39 +93,57 @@ void rind::CharacterEntity::updateMovement(float deltaTime) {
     glm::vec3 frameVelocity = velocity;
     bool touchedGround = false;
     glm::vec3 groundNormalAccum(0.0f);
+    glm::vec3 accumulatedOffset(0.0f); // total displacement from stale position
     for (uint32_t i = 0u; i < steps; ++i) {
         glm::vec3 vStep(0.0f, frameVelocity.y * subDt, 0.0f);
         if (std::abs(vStep.y) >= 1e-6f) {
-            engine::Collider::Collision collision = willCollide(glm::translate(glm::mat4(1.0f), vStep));
+            engine::Collider::Collision collision = willCollide(accumulatedOffset + vStep);
             if (collision.other) {
                 glm::vec3 mtv = collision.mtv.mtv;
                 if (glm::dot(mtv, vStep) > 0.0f) {
                     mtv = -mtv; // oppose attempted vertical motion
                 }
-                glm::vec3 offset = vStep + mtv;
-                setTransform(applyWorldTranslation(getTransform(), offset));
                 float penetration = collision.mtv.penetrationDepth;
-                if (penetration > 1e-6f) {
-                    glm::vec3 n = glm::normalize(mtv);
-                    float vn = glm::dot(frameVelocity, n);
-                    if (vn < 0.0f) {
-                        frameVelocity -= n * vn;
-                        velocity -= n * glm::dot(velocity, n);
+                glm::vec3 n = (penetration > 1e-6f) ? glm::normalize(mtv) : glm::vec3(0.0f);
+                bool isEdgeCollision = false;
+                if (n.y > groundedNormalThreshold && vStep.y < 0.0f) {
+                    engine::AABB playerAABB = collider->getWorldAABB();
+                    playerAABB.min += accumulatedOffset + vStep;
+                    playerAABB.max += accumulatedOffset + vStep;
+                    engine::AABB otherAABB = collision.other->getWorldAABB();
+                    if (!isAboveSurface(playerAABB, otherAABB)) {
+                        isEdgeCollision = true;
                     }
-                    if (n.y > groundedNormalThreshold && frameVelocity.y <= 0.0f) {
-                        touchedGround = true;
-                        groundNormalAccum += n;
-                        frameVelocity.y = 0.0f;
-                        velocity.y = 0.0f;
+                }
+                if (isEdgeCollision) {
+                    accumulatedOffset += vStep;
+                    setTransform(applyWorldTranslation(getTransform(), vStep));
+                } else {
+                    glm::vec3 offset = vStep + mtv;
+                    accumulatedOffset += offset;
+                    setTransform(applyWorldTranslation(getTransform(), offset));
+                    if (penetration > 1e-6f) {
+                        float vn = glm::dot(frameVelocity, n);
+                        if (vn < 0.0f) {
+                            frameVelocity -= n * vn;
+                            velocity -= n * glm::dot(velocity, n);
+                        }
+                        if (n.y > groundedNormalThreshold && frameVelocity.y <= 0.0f) {
+                            touchedGround = true;
+                            groundNormalAccum += n;
+                            frameVelocity.y = 0.0f;
+                            velocity.y = 0.0f;
+                        }
                     }
                 }
             } else {
+                accumulatedOffset += vStep;
                 setTransform(applyWorldTranslation(getTransform(), vStep));
             }
         }
         glm::vec3 hStep(frameVelocity.x * subDt, 0.0f, frameVelocity.z * subDt);
         if (glm::length(hStep) > 1e-6f) {
-            engine::Collider::Collision collision = willCollide(glm::translate(glm::mat4(1.0f), hStep));
+            engine::Collider::Collision collision = willCollide(accumulatedOffset + hStep);
             if (collision.other) {
                 glm::vec3 mtv = collision.mtv.mtv;
                 if (glm::dot(mtv, hStep) > 0.0f) {
@@ -128,6 +158,7 @@ void rind::CharacterEntity::updateMovement(float deltaTime) {
                     }
                 }
                 glm::vec3 offset = hStep + mtv;
+                accumulatedOffset += offset;
                 setTransform(applyWorldTranslation(getTransform(), offset));
                 float penetration = collision.mtv.penetrationDepth;
                 if (penetration > 1e-6f) {
@@ -139,42 +170,50 @@ void rind::CharacterEntity::updateMovement(float deltaTime) {
                     }
                 }
             } else {
+                accumulatedOffset += hStep;
                 setTransform(applyWorldTranslation(getTransform(), hStep));
             }
         }
     }
-    engine::Collider::Collision postCollision = willCollide(glm::mat4(1.0f));
-    if (postCollision.other) {
+    // resolve remaining overlaps iteratively
+    for (int postIter = 0; postIter < 4; ++postIter) {
+        engine::Collider::Collision postCollision = willCollide(accumulatedOffset);
+        if (!postCollision.other) break;
         glm::vec3 mtv = postCollision.mtv.mtv;
         float penetration = postCollision.mtv.penetrationDepth;
-        
-        // check if MTV points up enough to be considered ground
-        if (penetration > 1e-6f) {
-            glm::vec3 n = glm::normalize(mtv);
-            if (n.y > groundedNormalThreshold) {
-                touchedGround = true;
-                groundNormalAccum += n;
-            }
-            setTransform(applyWorldTranslation(getTransform(), mtv));
-            float vn = glm::dot(frameVelocity, n);
-            if (vn < 0.0f) {
-                frameVelocity -= n * vn;
-                velocity -= n * glm::dot(velocity, n);
+        if (penetration <= 1e-6f) break;
+        glm::vec3 n = glm::normalize(mtv);
+        bool isEdge = false;
+        if (n.y > groundedNormalThreshold) {
+            engine::AABB playerAABB = collider->getWorldAABB();
+            playerAABB.min += accumulatedOffset;
+            playerAABB.max += accumulatedOffset;
+            engine::AABB otherAABB = postCollision.other->getWorldAABB();
+            if (!isAboveSurface(playerAABB, otherAABB)) {
+                isEdge = true;
             }
         }
+        if (isEdge) break;
+        if (n.y > groundedNormalThreshold) {
+            touchedGround = true;
+            groundNormalAccum += n;
+        }
+        accumulatedOffset += mtv;
+        setTransform(applyWorldTranslation(getTransform(), mtv));
+        float vn = glm::dot(frameVelocity, n);
+        if (vn < 0.0f) {
+            frameVelocity -= n * vn;
+            velocity -= n * glm::dot(velocity, n);
+        }
     }
-    size_t groundHits = engine::Collider::raycast(
-        getEntityManager(),
-        getCollider()->getWorldPosition() + glm::vec3(0.0f, -collider->getHalfSize().y + 0.1f, 0.0f),
-        glm::vec3(0.0f, -1.0f, 0.0f),
-        0.1f,
-        getCollider(),
-        false,
-        0.0f,
-        true // getAny early exits on first hit
-    ).size();
-    if (groundHits > 0) {
-        touchedGround = true;
+    if (!touchedGround) {
+        const glm::vec3 rayOrigin = getCollider()->getWorldPosition() + accumulatedOffset + glm::vec3(0.0f, -collider->getHalfSize().y + 0.1f, 0.0f);
+        const float rayLen = (wasGrounded && velocity.y <= 1e-6f) ? 0.35f : 0.1f;
+        if (engine::Collider::raycastAny(
+            getEntityManager(), rayOrigin, glm::vec3(0.0f, -1.0f, 0.0f), rayLen, getCollider(), 0.0f
+        )) {
+            touchedGround = true;
+        }
     }
     if (touchedGround) {
         grounded = true;
@@ -231,8 +270,7 @@ void rind::CharacterEntity::rotate(const glm::vec3& delta) {
         glm::mat4 newTransform = glm::mat4_cast(newRotation);
         newTransform[3] = currentTransform[3];
 
-        glm::mat4 deltaTransform = glm::inverse(currentTransform) * newTransform;
-        engine::Collider::Collision collision = willCollide(deltaTransform);
+        engine::Collider::Collision collision = willCollide(glm::vec3(0.0f));
 
         bool allowRotation = false;
         if (!collision.other) {
@@ -266,15 +304,14 @@ void rind::CharacterEntity::rotate(const glm::vec3& delta) {
     }
 }
 
-engine::Collider::Collision rind::CharacterEntity::willCollide(const glm::mat4& deltaTransform) {
+engine::Collider::Collision rind::CharacterEntity::willCollide(const glm::vec3& worldOffset) {
     if (!collider) {
         return engine::Collider::Collision();
     }
     engine::AABB myAABB = collider->getWorldAABB();
-    glm::vec3 delta = glm::vec3(deltaTransform[3]);
-    if (glm::length(delta) > 1e-6f) {
-        myAABB.min += delta;
-        myAABB.max += delta;
+    if (glm::dot(worldOffset, worldOffset) > 1e-12f) {
+        myAABB.min += worldOffset;
+        myAABB.max += worldOffset;
     }
     const float margin = 0.1f;
     engine::AABB queryAABB = {
@@ -283,10 +320,11 @@ engine::Collider::Collision rind::CharacterEntity::willCollide(const glm::mat4& 
     };
     static thread_local std::vector<engine::Collider*> candidates;
     getEntityManager()->getSpatialGrid().query(queryAABB, candidates);
-    
+
     engine::Collider::Collision bestCollision;
     float bestScore = -std::numeric_limits<float>::max();
-    
+
+    glm::mat4 deltaTransform = glm::translate(glm::mat4(1.0f), worldOffset);
     for (engine::Collider* otherCollider : candidates) {
         if (otherCollider == collider || otherCollider->getIsTrigger()) {
             continue;
@@ -298,12 +336,11 @@ engine::Collider::Collision rind::CharacterEntity::willCollide(const glm::mat4& 
         engine::Collider::Collision collision;
         if (collider->intersectsMTV(*otherCollider, collision.mtv, deltaTransform)) {
             collision.other = otherCollider;
-            
             glm::vec3 mtv = collision.mtv.mtv;
-            float opposition = -glm::dot(glm::normalize(mtv + glm::vec3(1e-6f)), delta + glm::vec3(1e-6f));
+            float opposition = -glm::dot(glm::normalize(mtv + glm::vec3(1e-6f)), worldOffset + glm::vec3(1e-6f));
             float penetration = collision.mtv.penetrationDepth;
             float score = penetration + opposition * 0.1f;
-            
+
             if (score > bestScore) {
                 bestScore = score;
                 bestCollision = collision;

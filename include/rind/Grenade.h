@@ -7,19 +7,19 @@
 #include <engine/VolumetricManager.h>
 #include <rind/Player.h>
 #include <rind/Enemy.h>
-
-#define PI 3.14159265358979323846f
+#include <numbers>
 
 namespace rind {
     class Grenade : public engine::Entity {
     public:
         Grenade(
             engine::EntityManager* entityManager,
+            Player* player,
             const glm::mat4& transform,
             const glm::vec3& velocity,
             const glm::vec3& color,
             float lifetime = 5.0f
-        ) : engine::Entity(entityManager, "grenade" + hashName(transform), "gbuffer", transform, {"materials_slowbullet_albedo", "materials_slowbullet_metallic", "materials_slowbullet_roughness", "materials_slowbullet_normal"}, true, engine::Entity::EntityType::Generic), velocity(velocity), timeRemaining(lifetime), color(color) {
+        ) : engine::Entity(entityManager, "grenade" + hashName(transform), "gbuffer", transform, {"materials_slowbullet_albedo", "materials_slowbullet_metallic", "materials_slowbullet_roughness", "materials_slowbullet_normal"}, true, engine::Entity::EntityType::Generic), velocity(velocity), timeRemaining(lifetime), color(color), player(player) {
             setModel(entityManager->getRenderer()->getModelManager()->getModel("slowbullet"));
             collider = new engine::OBBCollider(
                 entityManager,
@@ -74,7 +74,7 @@ namespace rind {
             }
             if (!camera->isSphereInFrustum(getWorldPosition(), 1.0f)) {
                 particleManager->burstParticles(
-                    getWorldTransform(),
+                    getWorldPosition(),
                     color,
                     glm::vec3(0.0f, 1.0f, 0.0f) * 0.5f,
                     4,
@@ -85,8 +85,8 @@ namespace rind {
                 return;
             }
             float sizeFactor = dist(rng) * 0.2f + 0.4f; // 0.2 to 0.6
-            float randomPhi = dist(rng) * 2.0f * PI;
-            float randomCostheta = dist(rng) * 2.0f - 1.0f;
+            float randomPhi = dist(rng) * 2.0f * std::numbers::pi_v<float>;
+            float randomCostheta = dist(rng);
             float randomSintheta = sqrt(1.0f - randomCostheta * randomCostheta);
             glm::vec3 randomDir = glm::vec3(
                 cos(randomPhi) * randomSintheta,
@@ -95,7 +95,7 @@ namespace rind {
             );
             if (distanceToCamera > 30.0f) {
                 particleManager->burstParticles(
-                    getWorldTransform(),
+                    getWorldPosition(),
                     color,
                     randomDir * 2.0f,
                     6,
@@ -105,7 +105,7 @@ namespace rind {
                 );
             } else {
                 particleManager->burstParticles(
-                    getWorldTransform(),
+                    getWorldPosition(),
                     color,
                     randomDir * 2.0f,
                     10,
@@ -128,6 +128,9 @@ namespace rind {
             
             engine::Collider* hitCollider = nullptr;
             
+            bool showHitmarker = false;
+            glm::vec3 hitmarkerColor{0.0f};
+
             for (engine::Collider* candidate : candidates) {
                 if (candidate == collider || candidate->getType() == engine::Entity::EntityType::Trigger) continue;
                 
@@ -138,23 +141,22 @@ namespace rind {
                 if (other->getType() == engine::Entity::EntityType::Enemy) {
                     rind::Enemy* enemy = static_cast<rind::Enemy*>(other);
                     enemy->damage(damage);
+                    if (player) {
+                        showHitmarker = true;
+                        if (enemy->getHealth() - damage <= 0.0f) {
+                            hitmarkerColor = glm::vec3(1.0f, 0.2f, 0.2f);
+                        } else if (hitmarkerColor != glm::vec3(1.0f, 1.0f, 1.0f)) {
+                            hitmarkerColor = glm::vec3(1.0f, 1.0f, 1.0f);
+                        }
+                    }
                 } else if (other->getType() == engine::Entity::EntityType::Player) {
-                    rind::Player* player = static_cast<rind::Player*>(other);
-                    player->damage(damage);
+                    static_cast<rind::Player*>(other)->damage(damage);
                 }
             }
-            volumetricManager->createVolumetric(
-                glm::scale(
-                    getWorldTransform(),
-                    glm::vec3(2.0f, 2.0f, 2.0f)
-                ),
-                glm::scale(
-                    getWorldTransform(),
-                    glm::vec3(10.0f, 10.0f, 10.0f)
-                ),
-                glm::vec4(glm::min(color + glm::vec3(0.2f), glm::vec3(1.0f)), 20.0f),
-                0.5f
-            );
+            if (player && showHitmarker) {
+                player->showHitmarker(hitmarkerColor);
+            }
+            audioManager->playSound3D("grenade_explode", getWorldPosition(), 1.2f, 0.15f);
             volumetricManager->createVolumetric(
                 glm::scale(
                     getWorldTransform(),
@@ -165,7 +167,8 @@ namespace rind {
                     glm::vec3(20.0f, 20.0f, 20.0f)
                 ),
                 glm::vec4(glm::min(color + glm::vec3(0.2f), glm::vec3(1.0f)), 1.0f),
-                2.0f
+                2.0f,
+                6.0f
             );
             volumetricManager->createVolumetric(
                 glm::scale(
@@ -177,10 +180,10 @@ namespace rind {
                     glm::vec3(25.0f, 25.0f, 25.0f)
                 ),
                 glm::vec4(0.1f, 0.1f, 0.1f, 0.4f),
-                4.0f
+                4.5f
             );
             particleManager->burstParticles(
-                glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+                getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
                 color,
                 glm::vec3(0.0f, 1.0f, 0.0f) * 5.0f,
                 250,
@@ -189,7 +192,7 @@ namespace rind {
                 0.5f
             );
             particleManager->burstParticles(
-                glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+                getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
                 color,
                 glm::vec3(0.0f, 1.0f, 0.0f) * 10.0f,
                 160,
@@ -198,7 +201,7 @@ namespace rind {
                 1.0f
             );
             particleManager->burstParticles(
-                glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+                getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
                 color,
                 glm::vec3(0.0f, 1.0f, 0.0f) * 11.0f,
                 50,
@@ -207,7 +210,7 @@ namespace rind {
                 1.5f
             );
             particleManager->burstParticles(
-                glm::translate(getWorldTransform(), glm::vec3(0.0f, 0.5f, 0.0f)),
+                getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f),
                 color,
                 glm::vec3(0.0f, 1.0f, 0.0f) * 12.0f,
                 300,
@@ -225,6 +228,7 @@ namespace rind {
         engine::AudioManager* audioManager;
         engine::ParticleManager* particleManager;
         engine::VolumetricManager* volumetricManager;
+        Player* player;
 
         std::mt19937 rng{std::random_device{}()};
         std::uniform_real_distribution<float> dist{-1.0f, 1.0f};

@@ -70,6 +70,9 @@ namespace engine {
         uint32_t arrayLayers = 1;
         VkImageCreateFlags flags = 0;
 
+        uint32_t allocatedWidth = 0;
+        uint32_t allocatedHeight = 0;
+
         VkImage image = VK_NULL_HANDLE;
         VkDeviceMemory memory = VK_NULL_HANDLE;
         VkImageView imageView = VK_NULL_HANDLE;
@@ -113,8 +116,12 @@ namespace engine {
             VkSampler sampler = VK_NULL_HANDLE;
             bool blendEnable = true;
             bool blendAdditive = false;
+            // Optional per-attachment blend states. When non-empty, overrides the
+            // single uniform blend state above. Size must equal colorAttachmentCount.
+            std::vector<VkPipelineColorBlendAttachmentState> colorBlendOverrides = {};
             VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT;
             int colorAttachmentCount = 1;
+            uint32_t viewMask = 0u;
             std::type_index pushConstantType = std::type_index(typeid(void));
 
             template<typename T>
@@ -151,7 +158,7 @@ namespace engine {
         void createDescriptorSetLayout(engine::Renderer* renderer);
         void createPipeline(engine::Renderer* renderer);
         void createDescriptorPool(engine::Renderer* renderer);
-        void updateDescriptorSets(engine::Renderer* renderer, std::vector<VkDescriptorSet>& descriptorSets, std::vector<Texture*>& textures, std::vector<VkBuffer>& buffers);
+        void updateDescriptorSets(engine::Renderer* renderer, std::vector<VkDescriptorSet>& descriptorSets, std::vector<Texture*>& textures, std::vector<VkBuffer>& buffers, int frameIndex = -1);
 
         bool operator==(const GraphicsShader& other) const {
             return name == other.name;
@@ -168,6 +175,11 @@ namespace engine {
             int computeBitBindings = 1;
             int storageImageCount = 1;
             int storageBufferCount = 0;
+            std::vector<uint32_t> computeDescriptorCounts = {};
+            std::vector<VkDescriptorType> computeDescriptorTypes = {};
+            uint32_t workgroupSizeX = 1;
+            uint32_t workgroupSizeY = 1;
+            uint32_t workgroupSizeZ = 1;
             std::type_index pushConstantType = std::type_index(typeid(void));
 
             template<typename T>
@@ -178,12 +190,27 @@ namespace engine {
                 pushConstantType = std::type_index(typeid(T));
             }
             std::function<void(engine::Renderer*, ComputeShader*, VkCommandBuffer)> fillPushConstants = nullptr;
+            std::function<uint32_t(engine::Renderer*, ComputeShader*)> getDispatchLayerCount = nullptr;
+            std::function<uint32_t(engine::Renderer*, ComputeShader*)> getDispatchWidth = nullptr;
+            std::function<uint32_t(engine::Renderer*, ComputeShader*)> getDispatchHeight = nullptr;
+
+            struct InputBinding {
+                uint32_t binding;
+                std::string sourceShaderName;
+                std::string attachmentName;
+                std::string textureName;
+                std::function<VkDescriptorBufferInfo(engine::Renderer*, size_t frame)> bufferProvider;
+                std::function<void(engine::Renderer*, size_t frame, uint32_t count, std::vector<VkDescriptorImageInfo>& imageInfos)> imageArrayProvider;
+                VkDescriptorType descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            };
+            std::vector<InputBinding> inputBindings;
         } config;
 
         VkPipeline pipeline{};
         VkPipelineLayout pipelineLayout{};
         VkDescriptorSetLayout descriptorSetLayout{};
         VkDescriptorPool descriptorPool{};
+        std::vector<VkDescriptorSet> descriptorSets;
 
         void createDescriptorSetLayout(engine::Renderer* renderer);
         void createPipeline(engine::Renderer* renderer);
@@ -210,21 +237,39 @@ struct std::hash<engine::ComputeShader> {
 };
 
 namespace engine {
+    struct RenderLane {
+        std::string name;
+        bool allowGraphics = true;
+        bool allowCompute = true;
+        bool preferAsync = false;
+        bool mustPreserveOrder = false;
+    };
+
     struct RenderNode {
+        std::string name;
         bool is2D = false;
         PassInfo* passInfo = nullptr;
         std::unordered_set<GraphicsShader*> shaders;
+        std::unordered_set<ComputeShader*> computeShaders;
         std::vector<std::string> shaderNames;
+        std::vector<std::string> dependsOnNodeNames;
+        std::vector<size_t> resolvedDependencies;
+        std::shared_ptr<RenderLane> lane = nullptr;
+        bool usesRendering = true;
+        bool canRunCustomOnComputeQueue = false;
+        bool usePassManagedTransitions = true;
+        VkPipelineStageFlags2 storageWriteStage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         std::function<void(Renderer*, VkCommandBuffer, uint32_t)> customRenderFunc = nullptr;
         std::function<bool(Renderer*)> skipCondition = nullptr;
     };
     struct RenderGraph {
         std::vector<RenderNode> nodes;
+        std::vector<size_t> scheduledNodeOrder;
     };
     
     class ShaderManager {
     public:
-        ShaderManager(engine::Renderer* renderer, const std::string& shaderDirectory = "src/assets/shaders/compiled/");
+        ShaderManager(engine::Renderer* renderer);
         ~ShaderManager();
 
         void addGraphicsShader(GraphicsShader shader);
@@ -237,19 +282,17 @@ namespace engine {
         void loadGraphicsShader(const std::string& name);
         void loadComputeShader(const std::string& name);
 
-        void editGraphicsShader(const std::string& name, const ShaderStageInfo& newVertex, const ShaderStageInfo& newFragment);
-        void editComputeShader(const std::string& name, const ShaderStageInfo& newCompute);
-
         GraphicsShader* getGraphicsShader(const std::string& name) const;
         ComputeShader* getComputeShader(const std::string& name) const;
 
-        std::string getShaderFilePath(const std::string& name) const;
+        std::vector<char> getShaderBytes(const std::string& name) const;
 
         void loadSMAATextures();
-        std::vector<GraphicsShader> createDefaultShaders();
-        std::vector<ComputeShader> createDefaultComputeShaders();
+        void createDefaultShaders();
+        const std::vector<std::shared_ptr<PassInfo>>& getRenderPasses() const;
         std::vector<RenderNode>& getRenderGraph();
         const std::vector<RenderNode>& getRenderGraph() const;
+        const std::vector<size_t>& getScheduledNodeOrder() const;
         void resolveRenderGraphShaders();
 
         static VkShaderModule createShaderModule(const std::vector<char>& code, Renderer* renderer);
@@ -261,9 +304,7 @@ namespace engine {
         std::unordered_map<std::string, GraphicsShader*> graphicsShaderMap;
         std::unordered_map<std::string, ComputeShader*> computeShaderMap;
 
-        std::unordered_map<std::string, std::string> foundShaderFiles;
-
-        std::string shaderDirectory;
+        std::vector<std::shared_ptr<PassInfo>> renderPasses;
 
         engine::Renderer* renderer;
         RenderGraph renderGraph;

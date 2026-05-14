@@ -4,16 +4,16 @@
 #include <glm/gtc/quaternion.hpp>
 #include <rind/SlowBullet.h>
 #include <cmath>
-
-#define PI 3.14159265358979323846f
+#include <numbers>
 
 rind::FlyingEnemy::FlyingEnemy(
     engine::EntityManager* entityManager,
     rind::Player* player,
+    rind::GameInstance* gameInstance,
     const std::string& name,
     const glm::mat4& transform,
     uint32_t& enemyCount
-) : rind::Enemy(entityManager, player, name, transform, enemyCount) {
+) : rind::Enemy(entityManager, player, gameInstance, name, transform, enemyCount) {
         engine::OBBCollider* box = new engine::OBBCollider(
             entityManager,
             glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.4f, 0.0f)),
@@ -112,7 +112,7 @@ void rind::FlyingEnemy::update(float deltaTime) {
                 float angle = acos(dot);
                 glm::vec3 cross = glm::cross(forward, targetDir);
                 float rotationDir = cross.y > 0.0f ? 1.0f : -1.0f;
-                float maxRotation = deltaTime * PI;
+                float maxRotation = deltaTime * std::numbers::pi_v<float>;
                 float rotationAmount = glm::min(angle, maxRotation) * rotationDir;
                 rotate(glm::vec3(0.0f, rotationAmount, 0.0f));
                 float desiredHeight = targetPlayer->getWorldPosition().y + 3.0f;
@@ -125,22 +125,19 @@ void rind::FlyingEnemy::update(float deltaTime) {
                 yVel = std::clamp(yVel, -10.0f, 10.0f);
                 if (yVel < 0.0f) {
                     float groundCheckDist = std::abs(yVel * deltaTime) + 1.5f;
-                    size_t groundHits = engine::Collider::raycast(
+                    if (engine::Collider::raycastAny(
                         getEntityManager(),
                         getWorldPosition(),
                         glm::vec3(0.0f, -1.0f, 0.0f),
                         groundCheckDist,
                         this->getCollider(),
-                        false,
-                        0.1f,
-                        true // getAny returns on first hit
-                    ).size();
-                    if (groundHits > 0) {
+                        0.1f
+                    )) {
                         yVel = 0.0f;
                     }
                 }
                 setVelocity(glm::vec3(getVelocity().x, yVel, getVelocity().z));
-                bool facingPlayer = (angle < PI / 4.0f);
+                bool facingPlayer = (angle < std::numbers::pi_v<float> / 4.0f);
                 float desiredDistance = 12.0f;
                 float distanceError = distanceToPlayer - desiredDistance;
                 if (distanceError < 0.5f && distanceError > -0.5f) {
@@ -186,7 +183,7 @@ void rind::FlyingEnemy::update(float deltaTime) {
                 float angle = acos(dot);
                 glm::vec3 cross = glm::cross(forward, targetDir);
                 float rotationDir = cross.y > 0.0f ? 1.0f : -1.0f;
-                float maxRotation = deltaTime * PI;
+                float maxRotation = deltaTime * std::numbers::pi_v<float>;
                 float rotationAmount = glm::min(angle, maxRotation) * rotationDir;
                 glm::vec3 headWorldPos = glm::vec3(getHead()->getWorldTransform()[3]);
                 glm::vec3 toPlayerFromHead = targetPlayer->getWorldPosition() + glm::vec3(0.0f, 0.5f, 0.0f) - headWorldPos;
@@ -218,16 +215,13 @@ void rind::FlyingEnemy::update(float deltaTime) {
                 }
                 float strafeDir = randX > 0.0f ? 1.0f : -1.0f;
                 glm::vec3 right = glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f));
-                size_t hits = engine::Collider::raycast(
+                if (engine::Collider::raycastAny(
                     getEntityManager(),
                     getWorldPosition(),
                     right * strafeDir, 2.0f,
                     this->getCollider(),
-                    false,
-                    0.1f,
-                    true
-                ).size();
-                if (hits > 0) {
+                    0.1f
+                )) {
                     if (getPressed().x != strafeDir) {
                         stopMove(getPressed(), false);
                         move(glm::vec3(strafeDir, 0.0f, 0.0f), false);
@@ -251,7 +245,7 @@ void rind::FlyingEnemy::wander() {
     uint32_t tries = 0;
     glm::vec3 playerPos = targetPlayer->getWorldPosition();
     while (tries < 20) {
-        direction = (dist(rng) + 1.0f) * PI;
+        direction = (dist(rng) + 1.0f) * std::numbers::pi_v<float>;
         yOffset = dist(rng) * 0.5f;
         amount = (dist(rng) + 1.0f) * 10.0f;
         if ((getWorldPosition().y + yOffset * amount <= -5.0f && yOffset < 0.0f)
@@ -266,8 +260,13 @@ void rind::FlyingEnemy::wander() {
             tries++;
             continue;
         }
-        size_t rayHits = engine::Collider::raycast(getEntityManager(), getWorldPosition(), goal, amount, getCollider()).size();
-        if (rayHits == 0) {
+        if (!engine::Collider::raycastAny(
+            getEntityManager(),
+            getWorldPosition(),
+            goal,
+            amount,
+            getCollider()
+        )) {
             wanderTarget = worldGoal;
             wandering = true;
             break;
@@ -309,7 +308,7 @@ void rind::FlyingEnemy::wanderTo(float deltaTime) {
     float angle = acos(dot);
     glm::vec3 cross = glm::cross(forward, targetDir);
     float rotationDir = cross.y > 0.0f ? 1.0f : -1.0f;
-    float maxRotation = deltaTime * 2 * PI;
+    float maxRotation = deltaTime * 2.0f * std::numbers::pi_v<float>;
     float rotationAmount = glm::min(angle, maxRotation) * rotationDir;
     rotate(glm::vec3(0.0f, rotationAmount, 0.0f));
     float yDiff = wanderTarget.y - getWorldPosition().y;
@@ -320,8 +319,13 @@ void rind::FlyingEnemy::wanderTo(float deltaTime) {
     yVel = std::clamp(yVel, -10.0f, 10.0f);
     if (yVel < 0.0f) {
         float groundCheckDist = std::abs(yVel * deltaTime) + 1.5f;
-        size_t groundHits = engine::Collider::raycast(getEntityManager(), getWorldPosition(), glm::vec3(0.0f, -1.0f, 0.0f), groundCheckDist, this->getCollider()).size();
-        if (groundHits > 0) {
+        if (engine::Collider::raycastAny(
+            getEntityManager(),
+            getWorldPosition(),
+            glm::vec3(0.0f, -1.0f, 0.0f),
+            groundCheckDist,
+            this->getCollider()
+        )) {
             yVel = 0.0f;
         }
     }
@@ -334,7 +338,7 @@ void rind::FlyingEnemy::shoot() {
     glm::vec3 rayDir = glm::normalize(glm::vec3(getHead()->getWorldTransform()[0]));
     glm::vec3 gunPos = gunEndPosition->getWorldPosition();
     particleManager->burstParticles(
-        glm::translate(glm::mat4(1.0f), gunPos),
+        gunPos,
         getTrailColor(),
         rayDir * 10.0f,
         20,
@@ -343,7 +347,7 @@ void rind::FlyingEnemy::shoot() {
         0.8f
     );
     particleManager->burstParticles(
-        glm::translate(glm::mat4(1.0f), gunPos),
+        gunPos,
         getTrailColor(),
         rayDir * 15.0f,
         60,

@@ -1,23 +1,16 @@
 #include <engine/VolumetricManager.h>
 #include <engine/ShaderManager.h>
+#include <engine/SettingsManager.h>
 #include <engine/PushConstants.h>
 #include <engine/Camera.h>
 
 engine::Volumetric::Volumetric(
-    VolumetricManager* volumetricManager,
     const glm::mat4& initialTransform,
     const glm::mat4& finalTransform,
     const glm::vec4& color,
-    float lifetime
-) : volumetricManager(volumetricManager), initialTransform(initialTransform), finalTransform(finalTransform), color(color), lifetime(lifetime) {
-        volumetricManager->registerVolumetric(this);
-    }
-
-engine::Volumetric::~Volumetric() {
-    if (volumetricManager) {
-        volumetricManager->unregisterVolumetric(this);
-    }
-}
+    float lifetime,
+    float acceleration
+) : initialTransform(initialTransform), finalTransform(finalTransform), color(color), lifetime(lifetime), acceleration(acceleration) {}
 
 engine::VolumetricManager::VolumetricManager(engine::Renderer* renderer)
     : renderer(renderer) {
@@ -42,12 +35,7 @@ engine::VolumetricManager::~VolumetricManager() {
         vkDestroyBuffer(renderer->getDevice(), cubeVertexBuffer, nullptr);
         vkFreeMemory(renderer->getDevice(), cubeVertexBufferMemory, nullptr);
     }
-    auto volumetricsCopy = std::move(volumetrics);
     volumetrics.clear();
-    for (auto* v : volumetricsCopy) {
-        v->detachFromManager();
-        delete v;
-    }
 }
 
 void engine::VolumetricManager::init() {
@@ -75,8 +63,8 @@ void engine::VolumetricManager::init() {
 }
 
 void engine::VolumetricManager::clear() {
-    for (const auto& v : volumetrics) {
-        v->markForDeletion();
+    for (auto& v : volumetrics) {
+        v.markForDeletion();
     }
 }
 
@@ -152,16 +140,12 @@ void engine::VolumetricManager::createVolumetricDescriptorSets() {
 
 void engine::VolumetricManager::updateVolumetricBuffer(uint32_t currentFrame) {
     VkDevice device = renderer->getDevice();
+    if (volumetrics.size() > hardCap) {
+        size_t toRemove = volumetrics.size() - hardCap;
+        volumetrics.erase(volumetrics.begin(), volumetrics.begin() + toRemove);
+    }
     if (volumetrics.size() > maxVolumetrics) {
         vkDeviceWaitIdle(device);
-        if (volumetrics.size() > hardCap) {
-            size_t toRemove = volumetrics.size() - hardCap;
-            for (size_t i = 0; i < toRemove; ++i) {
-                volumetrics[i]->detachFromManager();
-                delete volumetrics[i];
-            }
-            volumetrics.erase(volumetrics.begin(), volumetrics.begin() + toRemove);
-        }
         maxVolumetrics = std::min(std::max(maxVolumetrics * 2, static_cast<uint32_t>(volumetrics.size())), hardCap);
         for (size_t i = 0; i < volumetricBuffersMapped.size(); ++i) {
             if (volumetricBuffersMapped[i] != nullptr && i < volumetricBufferMemory.size() && volumetricBufferMemory[i] != VK_NULL_HANDLE) {
@@ -197,7 +181,7 @@ void engine::VolumetricManager::updateVolumetricBuffer(uint32_t currentFrame) {
     if (!camera) return;
     visibleVolumetrics = 0;
     for (size_t i = 0; i < volumetrics.size(); ++i) {
-        const VolumetricGPU& curr = volumetrics[i]->getGPUData();
+        const VolumetricGPU& curr = volumetrics[i].getGPUData();
         float scale = glm::length(glm::vec3(curr.model[0])); // assuming uniform scale
         if (camera->isSphereInFrustum(curr.model[3], scale)) {
             gpuData[visibleVolumetrics++] = curr;
@@ -215,12 +199,13 @@ void engine::VolumetricManager::renderVolumetrics(VkCommandBuffer commandBuffer,
     VkExtent2D extent = renderer->getSwapChainExtent();
     VolumetricPC pushConstants = {
         .viewProj = camera->getViewProjectionMatrix(),
-        .camPos = camera->getWorldPosition()
+        .camPos = glm::vec4(camera->getWorldPosition(), renderer->getSettingsManager()->getSettings()->volumetricQuality)
     };
     vkCmdPushConstants(commandBuffer, shader->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(VolumetricPC), &pushConstants);
     VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, &cubeVertexBuffer, &offset);
     vkCmdDraw(commandBuffer, 36, static_cast<uint32_t>(visibleVolumetrics), 0, 0);
+    frameCounter++;
 }
 
 void engine::VolumetricManager::updateAll(float deltaTime) {
@@ -229,28 +214,22 @@ void engine::VolumetricManager::updateAll(float deltaTime) {
     if (count > 64) {
         #pragma omp parallel for
         for (int i = 0; i < count; ++i) {
-            Volumetric* volumetric = volumetrics[static_cast<size_t>(i)];
-            volumetric->setAge(volumetric->getAge() + deltaTime);
-            if (volumetric->getAge() >= volumetric->getLifetime()) {
-                volumetric->markForDeletion();
+            Volumetric& volumetric = volumetrics[static_cast<size_t>(i)];
+            volumetric.setAge(volumetric.getAge() + deltaTime);
+            if (volumetric.getAge() >= volumetric.getLifetime()) {
+                volumetric.markForDeletion();
             }
         }
     } else
 #endif
     for (int i = 0; i < static_cast<int>(volumetrics.size()); ++i) {
-        Volumetric* volumetric = volumetrics[static_cast<size_t>(i)];
-        volumetric->setAge(volumetric->getAge() + deltaTime);
-        if (volumetric->getAge() >= volumetric->getLifetime()) {
-            volumetric->markForDeletion();
+        Volumetric& volumetric = volumetrics[static_cast<size_t>(i)];
+        volumetric.setAge(volumetric.getAge() + deltaTime);
+        if (volumetric.getAge() >= volumetric.getLifetime()) {
+            volumetric.markForDeletion();
         }
     }
-    auto it = std::remove_if(volumetrics.begin(), volumetrics.end(), [](Volumetric* v) {
-        if (v->isMarkedForDeletion()) {
-            v->detachFromManager();
-            delete v;
-            return true;
-        }
-        return false;
+    std::erase_if(volumetrics, [](const Volumetric& v) {
+        return v.isMarkedForDeletion();
     });
-    volumetrics.erase(it, volumetrics.end());
 }
